@@ -67,7 +67,7 @@ impl Buffer {
     }
     fn move_to_begin(&mut self) {
         unsafe {
-            ptr::copy_nonoverlapping(self.ptr_read(), self.mut_ptr_buf(), self.write - self.read);
+            ptr::copy(self.ptr_read(), self.mut_ptr_buf(), self.write - self.read);
             self.write -= self.read;
             self.read = 0;
         }

@@ -1,7 +1,14 @@
 extern crate mio;
+#[macro_use]
+extern crate log;
+
+#[cfg(test)]
+extern crate env_logger;
+
 mod buffer;
 mod looper;
 
+/*
 #[test]
 fn it_works() {
 use mio::*;
@@ -67,3 +74,4 @@ impl Handler for NoHandler {
 // Start handling events
 event_loop.run(&mut MyHandler(server)).unwrap();
 }
+*/

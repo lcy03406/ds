@@ -2,3 +2,10 @@
 name = "ds"
 version = "0.1.0"
 authors = ["lichengyu <lichengyu1985@163.com>"]
+
+[dependencies]
+mio = "0.5.0"
+log = "0.3.4"
+
+[dev-dependencies]
+env_logger = "0.3.2"

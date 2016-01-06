@@ -1,5 +1,7 @@
 use std::collections::HashMap;
-use std::cell::{RefCell, Ref, RefMut};
+use std::rc::{Rc, Weak};
+use std::cell::{RefCell, RefMut};
+use std::mem::swap;
 use std::io::{Result, ErrorKind, Write, Read};
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -8,83 +10,189 @@ use mio::tcp::{TcpStream, TcpListener, Shutdown};
 
 use buffer::Buffer;
 
+struct Looper<'a> {
+    eventers : HashMap<Token, Rc<RefCell<Eventer<'a>+'a>>>,
+    token_counter: usize,
+    current : Token,
+    to_reg : Vec<Token>,
+    pending : Vec<Token>,
+}
 
-trait Eventer {
-    fn set_token(&mut self, token : Token);
-    fn get_token(&self) -> Token;
-    fn get_interest(&self) -> EventSet;
-    fn get_evented(&mut self) -> &Evented;
-    fn on_ready(&mut self, es : EventSet);
+impl<'a> Looper<'a> {
+    pub fn new() -> Self {
+        Looper {
+            eventers : HashMap::new(),
+            token_counter : 0,
+            current : Token(0),
+            to_reg : Vec::new(),
+            pending : Vec::new(),
+        }
+    }
+
+    pub fn register(looper : &Rc<RefCell<Looper<'a>>>, ter: Rc<RefCell<Eventer<'a>+'a>>) {
+        let mut myself = looper.borrow_mut();
+        let token = myself.new_token();
+        ter.borrow_mut().looper_and_token().token = token;
+        myself.eventers.insert(token, ter);
+        myself.to_reg.push(token);
+        trace!("looper register {:?}", token);
+    }
+
+    pub fn reregister(&mut self, token : Token) {
+        debug_assert!(self.eventers.contains_key(&token));
+        if token == self.current {
+            trace!("looper reregister current {:?}", token);
+            return;
+        }
+        match self.pending.binary_search(&token) {
+            Ok(idx) => {
+                trace!("looper reregister already {:?}", token);
+            }
+            Err(idx) => {
+                trace!("looper reregister pending {:?}", token);
+                self.pending.insert(idx, token);
+            }
+        }
+    }
+
+    fn new_token(&mut self) -> Token {
+        loop {
+            self.token_counter += 1;
+            if self.token_counter == usize::max_value() {
+                self.token_counter = 1;
+            }
+            if !self.eventers.contains_key(&Token(self.token_counter)) {
+                return Token(self.token_counter);
+            }
+        }
+    }
 }
 
 struct LoopHandler<'a> {
-    eventers : HashMap<Token, Box<Eventer + 'a>>,
-    token_counter: usize
+    looper : Rc<RefCell<Looper<'a>>>
+}
+
+impl<'a> LoopHandler<'a> {
+    fn new() -> Self {
+        LoopHandler {
+            looper : Rc::new(RefCell::new(Looper::new()))
+        }
+    }
+    fn loop_register(&mut self, el : &mut EventLoop<Self>) {
+        let mut looper = self.looper.borrow_mut();
+        for token in &looper.to_reg {
+            match looper.eventers.get(&token) {
+                None => {
+                    assert!(false);
+                }
+                Some(ter) => {
+                    let t = ter.borrow_mut();
+                    let es = t.interest();
+                    el.register(t.evented(), *token, es, PollOpt::level());
+                    trace!("event_loop register {:?}", token);
+                }
+            }
+        }
+        looper.to_reg.clear();
+    }
+    fn loop_reregister(&mut self, el : &mut EventLoop<Self>) {
+        let mut pending;
+        {
+            let swap_pending = &mut self.looper.borrow_mut().pending;
+            if swap_pending.is_empty() {
+                return;
+            }
+            pending = Vec::new();
+            swap(&mut pending, swap_pending);
+        }
+        let mut ter;
+        for token in pending {
+            match self.looper.borrow().eventers.get(&token) {
+                None => {
+                    assert!(false);
+                    continue;
+                }
+                Some(e) => {
+                    ter = e.clone();
+                }
+            }
+            self.loop_reregister_eventer(el, &mut *ter.borrow_mut());
+        }
+    }
+    fn loop_reregister_eventer(&mut self, el : &mut EventLoop<Self>, t : &mut Eventer) {
+        let es = t.interest();
+        let token : Token = t.looper_and_token().token;
+        if es == EventSet::none() {
+            el.deregister(t.evented());
+            trace!("event_loop deregister {:?}", token);
+            let mut looper = self.looper.borrow_mut();
+            looper.eventers.remove(&token);
+        } else if t.looper_and_token().registered != es {
+            el.reregister(t.evented(), token, es, PollOpt::level());
+            trace!("event_loop reregister {:?} {:?}", token, es);
+            t.looper_and_token().registered = es;
+        }
+    }
 }
 
 impl<'a> Handler for LoopHandler<'a> {
     type Timeout = Token;
     type Message = ();
 
-    fn ready(&mut self, e : &mut EventLoop<LoopHandler<'a>>, token : Token, es : EventSet) {
-        match self.eventers.get_mut(&token) {
-            None => {
-            }
-            Some(ter) => {
-                ter.on_ready(es);
-            }
-        }
-    }
-}
-
-struct Looper<'a> {
-    event_loop : EventLoop<LoopHandler<'a>>,
-    handler : LoopHandler<'a>,
-}
-
-impl<'a> Looper<'a> {
-    pub fn new() -> Looper<'a> {
-        Looper {
-            event_loop : EventLoop::new().unwrap(),
-            handler : LoopHandler {
-                eventers : HashMap::new(),
-                token_counter : 0,
-            }
-        }
-    }
-
-    pub fn run(&mut self) -> Result<()> {
-        let e = &mut self.event_loop;
-        e.run(&mut self.handler)
-    }
-
-    pub fn register(&mut self, mut ter: Box<Eventer>) {
-        //let token = self.new_token();
-        //ter.set_token(token);
-        //let es = ter.get_interest();
-        //self.event_loop.register(ter.get_evented(), token, es, PollOpt::level());
-        //self.handler.eventers.insert(token, ter);
-    }
-
-    pub fn deregister(&mut self, token : Token) {
-        match self.handler.eventers.remove(&token) {
-            Some(mut ter) => {
-                self.event_loop.deregister(ter.get_evented());
-            },
+    fn ready(&mut self, el : &mut EventLoop<Self>, token : Token, es : EventSet) {
+        let mut ter;
+        match self.looper.borrow().eventers.get(&token) {
             None => {
                 assert!(false);
+                return;
             }
+            Some(e) => {
+                ter = e.clone();
+            }
+        }
+        let mut t = ter.borrow_mut();
+        trace!("handler ready {:?} {:?}", token, es);
+        self.looper.borrow_mut().current = token;
+        t.on_ready(es);
+        self.looper.borrow_mut().current = Token(0);
+        trace!("handler ready done");
+        self.loop_reregister_eventer(el, &mut *t);
+        self.loop_register(el);
+    }
+    fn tick(&mut self, el: &mut EventLoop<Self>) {
+        trace!("handler tick");
+        self.loop_register(el);
+        self.loop_reregister(el);
+        if self.looper.borrow().eventers.is_empty() {
+            trace!("handler shutdown");
+            el.shutdown();
+        } else {
+            trace!("handler eventes {:}", self.looper.borrow().eventers.len());
         }
     }
+}
 
-    fn new_token(&mut self) -> Token {
-        while self.handler.eventers.contains_key(&Token(self.handler.token_counter)) {
-            self.handler.token_counter += 1;
-            if self.handler.token_counter == usize::max_value() {
-                self.handler.token_counter = 0;
+struct LooperAndToken<'a> {
+    looper : Weak<RefCell<Looper<'a>>>,
+    token : Token,
+    registered : EventSet,
+}
+
+trait Eventer<'a> {
+    fn looper_and_token(&mut self) -> &mut LooperAndToken<'a>;
+    fn interest(&self) -> EventSet;
+    fn evented(&self) -> &Evented;
+    fn on_ready(&mut self, es : EventSet);
+
+    fn reregister(&mut self) {
+        let lt = self.looper_and_token();
+        match Weak::upgrade(&lt.looper) {
+            Some(ref loo) => {
+                loo.borrow_mut().reregister(lt.token);
+            }
+            None => {
             }
         }
-        return Token(self.handler.token_counter);
     }
 }
 
@@ -95,47 +203,50 @@ trait ConnectionEventer {
     fn on_read(&mut self);
 }
 
-struct Connection<'a, 'b : 'a, C : ConnectionEventer> {
+struct Connection<'a, C : ConnectionEventer + 'a> {
+    lt : LooperAndToken<'a>,
+    interest : EventSet,
     stream : TcpStream,
-    token : Token,
-    looper : RefMut<'a, Looper<'b>>,
-    es : EventSet,
     wbuf : Buffer,
     conn : C,
 }
 
-impl<'a, 'b, C : ConnectionEventer> Connection<'a, 'b, C> {
-    fn connect(mut looper : RefMut<'a, Looper<'b>>, conn : C, to : &str) -> Result<Connection<'a, 'b, C>> {
-        Ok(Connection {
+impl<'a, C : ConnectionEventer + 'a> Connection<'a, C> {
+    fn connect(looper : &Rc<RefCell<Looper<'a>>>, conn : C, to : &str) -> Result<()> {
+        let ter = Rc::new(RefCell::new(Connection {
+            lt : LooperAndToken {
+                looper : Rc::downgrade(looper),
+                token : Token(0),
+                registered : EventSet::none(),
+            },
+            interest : EventSet::all() ,
             stream : try!(TcpStream::connect(&SocketAddr::from_str(to).unwrap())),
-            token : looper.new_token(),
-            looper : looper,
-            es : EventSet::none(),
             wbuf : Buffer::with_capacity(1024),
             conn : conn,
-        })
+        }));
+        Looper::register(looper, ter);
+        Ok(())
     }
     pub fn close(&mut self) {
         self.stream.shutdown(Shutdown::Both);
         self.conn.on_close();
-        self.looper.deregister(self.token); //will drop self
+        self.interest = EventSet::none();
+        self.reregister();
     }
     fn want_writable(&mut self) {
-        self.es.insert(EventSet::writable());
+        self.interest.insert(EventSet::writable());
+        self.reregister();
     }
 }
 
-impl<'a, 'b, C : ConnectionEventer> Eventer for Connection<'a, 'b, C> {
-    fn set_token(&mut self, token : Token) {
-        self.token = token;
+impl<'a, C : ConnectionEventer + 'a> Eventer<'a> for Connection<'a, C> {
+    fn looper_and_token(&mut self) -> &mut LooperAndToken<'a> {
+        &mut self.lt
     }
-    fn get_token(&self) -> Token {
-        self.token
+    fn interest(&self) -> EventSet {
+        self.interest
     }
-    fn get_interest(&self) -> EventSet {
-        self.es
-    }
-    fn get_evented(&mut self) -> &Evented {
+    fn evented(&self) -> &Evented {
         &self.stream
     }
     fn on_ready(&mut self, es : EventSet) {
@@ -143,6 +254,7 @@ impl<'a, 'b, C : ConnectionEventer> Eventer for Connection<'a, 'b, C> {
             self.close();
         }
         if es.is_writable() {
+            self.interest.remove(EventSet::writable());
             self.flush();
         }
         if es.is_readable() {
@@ -151,7 +263,7 @@ impl<'a, 'b, C : ConnectionEventer> Eventer for Connection<'a, 'b, C> {
     }
 }
 
-impl<'a, 'b, C : ConnectionEventer> Write for Connection<'a, 'b, C> {
+impl<'a, C : ConnectionEventer + 'a> Write for Connection<'a, C> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         let len = buf.len();
         if self.wbuf.is_empty() {
@@ -206,6 +318,10 @@ impl<'a, 'b, C : ConnectionEventer> Write for Connection<'a, 'b, C> {
 
 #[test]
 fn test_reg() {
+    
+    use env_logger;
+    env_logger::init().unwrap();
+
     struct Conn {
         state : i32
     }
@@ -218,12 +334,15 @@ fn test_reg() {
         fn on_close(&mut self) {
         }
         fn on_read(&mut self) {
+            self.write("hello server");
         }
     }
-    let looper = RefCell::new(Looper::new());
-    looper.borrow_mut();//.register(conn);
-    let conn = Box::new(Connection::connect(looper.borrow_mut(), Conn{state:0}, "127.0.0.1:12306").unwrap());
-    //looper.borrow_mut();//.register(conn);
+    let mut handler = LoopHandler::new();
+    Connection::connect(&handler.looper, Conn{state:0}, "127.0.0.1:12306").unwrap();
+    trace!("run");
+    let mut el = EventLoop::new().unwrap();
+    handler.tick(&mut el);
+    el.run(&mut handler);
 }
 
 
