@@ -1,14 +1,15 @@
 use std::collections::HashMap;
-use std::rc::{Rc, Weak};
+use std::rc::{Rc};
 use std::cell::{RefCell};
-use std::mem::swap;
 use std::io::{Result, ErrorKind, Write, Read};
 use std::net::SocketAddr;
 use std::str::FromStr;
 use mio::{Token, Evented, EventSet};
 use mio::tcp::{TcpStream, TcpListener, Shutdown};
+
 use super::buffer::Buffer;
 use super::looper::{Eventer, Looper, LooperAndToken};
+use super::service::Service;
 
 pub trait Streamer<'a> {
     fn on_accept(&self, c : &mut Stream<'a>);
@@ -21,27 +22,31 @@ pub struct Stream<'a> {
     lt : LooperAndToken<'a>,
     interest : EventSet,
     got : EventSet,
-    stream : TcpStream,
+    pub stream : TcpStream,
     wbuf : Buffer,
-    conn : Weak<RefCell<Streamer<'a>>>,
+    pub is_client : bool,
+    pub peer_addr : SocketAddr,
 }
 
 impl<'a> Stream<'a> {
-    pub fn connect(looper : &Rc<RefCell<Looper<'a>>>, conn : Weak<RefCell<Streamer<'a>>>, to : &str) -> Result<()> {
-        let ter = Rc::new(RefCell::new(Stream {
-            lt : LooperAndToken {
-                looper : Rc::downgrade(looper),
-                token : Token(0),
-                registered : EventSet::none(),
+    pub fn connect<T : Streamer<'a> + 'a>(looper : &Rc<RefCell<Looper<'a>>>, streamer : T, to : SocketAddr) -> Result<Token> {
+        let ter = Rc::new(RefCell::new(StreamAndStreamer {
+            stream : Stream {
+                lt : LooperAndToken {
+                    looper : Rc::downgrade(looper),
+                    token : Token(0),
+                    registered : EventSet::none(),
+                },
+                interest : EventSet::all(),
+                got : EventSet::none(),
+                stream : try!(TcpStream::connect(&to)),
+                wbuf : Buffer::with_capacity(1024),
+                is_client : true,
+                peer_addr : to,
             },
-            interest : EventSet::all(),
-            got : EventSet::none(),
-            stream : try!(TcpStream::connect(&SocketAddr::from_str(to).unwrap())),
-            wbuf : Buffer::with_capacity(1024),
-            conn : conn,
+            streamer : streamer
         }));
-        Looper::register(looper, ter);
-        Ok(())
+        Ok(Looper::register(looper, ter))
     }
     pub fn close(&mut self) {
         if self.interest == EventSet::none() {
@@ -49,36 +54,16 @@ impl<'a> Stream<'a> {
         }
         self.got = EventSet::hup();
         self.stream.shutdown(Shutdown::Both);
-        match Weak::upgrade(&self.conn) {
-            Some(rc) => {
-                trace!("conn close");
-                rc.borrow().on_close(self);
-            }
-            None => {
-                trace!("conn close orphan");
-            }
-        }
+        trace!("stream shutdown");
         self.interest = EventSet::none();
-        self.reregister();
+        self.lt.reregister();
     }
     fn want_writable(&mut self) {
         self.got.remove(EventSet::writable());
         //self.interest.insert(EventSet::writable());
         //self.reregister();
     }
-}
-
-impl<'a> Eventer<'a> for Stream<'a> {
-    fn looper_and_token(&mut self) -> &mut LooperAndToken<'a> {
-        &mut self.lt
-    }
-    fn interest(&self) -> EventSet {
-        self.interest
-    }
-    fn evented(&self) -> &Evented {
-        &self.stream
-    }
-    fn on_ready(&mut self, es : EventSet) {
+    fn on_ready(&mut self, streamer : &mut (Streamer<'a> + 'a), es : EventSet) {
         let got = self.got;
         self.got = es;
         if es.is_error() || es.is_hup() {
@@ -87,33 +72,15 @@ impl<'a> Eventer<'a> for Stream<'a> {
         }
         if es.is_writable() {
             if got == EventSet::none() {
-                match Weak::upgrade(&self.conn) {
-                    Some(rc) => {
-                        trace!("conn connect");
-                        rc.borrow().on_connect(self);
-                    }
-                    None => {
-                        trace!("conn orphan");
-                        self.close();
-                        return;
-                    }
-                }
+                trace!("stream connect");
+                streamer.on_connect(self);
             }
             //self.interest.remove(EventSet::writable());
             self.flush();
         }
         if es.is_readable() {
-            match Weak::upgrade(&self.conn) {
-                Some(rc) => {
-                    trace!("conn read");
-                    rc.borrow().on_read(self);
-                }
-                None => {
-                    trace!("conn orphan");
-                    self.close();
-                    return;
-                }
-            }
+            trace!("stream read");
+            streamer.on_read(self);
         }
     }
 }
@@ -168,5 +135,28 @@ impl<'a> Write for Stream<'a> {
                 }
             }
         }
+    }
+}
+
+struct StreamAndStreamer<'a, T : Streamer<'a> + 'a> {
+    stream : Stream<'a>,
+    streamer : T,
+}
+
+impl<'a, T : Streamer<'a> + 'a> Eventer<'a> for StreamAndStreamer<'a, T> {
+    fn looper_and_token(&mut self) -> &mut LooperAndToken<'a> {
+        &mut self.stream.lt
+    }
+    fn interest(&self) -> EventSet {
+        self.stream.interest
+    }
+    fn evented(&self) -> &Evented {
+        &self.stream.stream
+    }
+    fn on_ready(&mut self, es : EventSet) {
+        self.stream.on_ready(&mut self.streamer, es);
+    }
+    fn on_close(&mut self) {
+        self.streamer.on_close(&mut self.stream);
     }
 }

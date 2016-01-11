@@ -5,23 +5,25 @@ use std::mem::swap;
 use std::io::{Result, ErrorKind, Write, Read};
 use mio::{Handler, EventLoop, Token, EventSet, PollOpt, Evented};
 
+pub trait Eventer<'a> {
+    fn looper_and_token(&mut self) -> &mut LooperAndToken<'a>;
+    fn interest(&self) -> EventSet;
+    fn evented(&self) -> &Evented;
+    fn on_ready(&mut self, es : EventSet);
+    fn on_close(&mut self);
+}
+
 pub struct LooperAndToken<'a> {
     pub looper : Weak<RefCell<Looper<'a>>>,
     pub token : Token,
     pub registered : EventSet,
 }
 
-pub trait Eventer<'a> {
-    fn looper_and_token(&mut self) -> &mut LooperAndToken<'a>;
-    fn interest(&self) -> EventSet;
-    fn evented(&self) -> &Evented;
-    fn on_ready(&mut self, es : EventSet);
-
-    fn reregister(&mut self) {
-        let lt = self.looper_and_token();
-        match Weak::upgrade(&lt.looper) {
+impl<'a> LooperAndToken<'a> {
+    pub fn reregister(&mut self) {
+        match Weak::upgrade(&self.looper) {
             Some(ref loo) => {
-                loo.borrow_mut().reregister(lt.token);
+                loo.borrow_mut().reregister(self.token);
             }
             None => {
             }
@@ -48,13 +50,14 @@ impl<'a> Looper<'a> {
         }
     }
 
-    pub fn register(looper : &Rc<RefCell<Looper<'a>>>, ter: Rc<RefCell<Eventer<'a>+'a>>) {
+    pub fn register(looper : &Rc<RefCell<Looper<'a>>>, ter: Rc<RefCell<Eventer<'a>+'a>>) -> Token {
         let mut myself = looper.borrow_mut();
         let token = myself.new_token();
         ter.borrow_mut().looper_and_token().token = token;
         myself.eventers.insert(token, ter);
         myself.to_reg.push(token);
         trace!("looper register {:?}", token);
+        token
     }
 
     pub fn reregister(&mut self, token : Token) {
@@ -149,8 +152,12 @@ impl<'a> LoopHandler<'a> {
         if es == EventSet::none() {
             el.deregister(t.evented());
             trace!("event_loop deregister {:?}", token);
-            let mut looper = self.looper.borrow_mut();
-            looper.eventers.remove(&token);
+            self.looper.borrow_mut().eventers.remove(&token);
+            trace!("handler on_close {:?}", token);
+            self.looper.borrow_mut().current = token;
+            t.on_close();
+            self.looper.borrow_mut().current = Token(0);
+            trace!("handler on_close done {:?}", token);
         } else if t.looper_and_token().registered != es {
             el.reregister(t.evented(), token, es, PollOpt::edge());
             trace!("event_loop reregister {:?} {:?}", token, es);
@@ -175,18 +182,18 @@ impl<'a> Handler for LoopHandler<'a> {
             }
         }
         let mut t = ter.borrow_mut();
-        trace!("handler ready {:?} {:?}", token, es);
+        trace!("handler on_ready {:?} {:?}", token, es);
         self.looper.borrow_mut().current = token;
         t.on_ready(es);
         self.looper.borrow_mut().current = Token(0);
-        trace!("handler ready done");
+        trace!("handler on_ready done {:?}", token);
         self.loop_reregister_eventer(el, &mut *t);
         self.loop_register(el);
     }
     fn tick(&mut self, el: &mut EventLoop<Self>) {
         trace!("handler tick");
-        self.loop_register(el);
         self.loop_reregister(el);
+        self.loop_register(el);
         if self.looper.borrow().eventers.is_empty() {
             trace!("handler shutdown");
             el.shutdown();

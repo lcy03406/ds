@@ -27,9 +27,8 @@ fn test_reg() {
         }
     }
     let mut handler = LoopHandler::new();
-    let conn = Rc::new(RefCell::new(Conn{state:0}));
-    let weak = Rc::downgrade(&conn);
-    Stream::connect(&handler.looper, weak, "127.0.0.1:12306").unwrap();
+    let conn = Conn{state:0};
+    Stream::connect(&handler.looper, conn, "127.0.0.1:12306").unwrap();
     trace!("run");
     handler.run();
 }
