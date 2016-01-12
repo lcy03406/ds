@@ -12,42 +12,23 @@ use super::looper::{Eventer, Looper, LooperAndToken};
 use super::service::Service;
 
 pub trait Streamer<'a> {
-    fn on_accept(&self, c : &mut Stream<'a>);
-    fn on_connect(&self, c : &mut Stream<'a>);
-    fn on_close(&self, c : &mut Stream<'a>);
-    fn on_read(&self, c : &mut Stream<'a>);
+    fn on_connect(&self, c : &mut StreamBody<'a>);
+    fn on_close(&self, c : &mut StreamBody<'a>);
+    fn on_read(&self, c : &mut StreamBody<'a>);
 }
 
-pub struct Stream<'a> {
+pub struct StreamBody<'a> {
     lt : LooperAndToken<'a>,
     interest : EventSet,
     got : EventSet,
-    pub stream : TcpStream,
-    wbuf : Buffer,
     pub is_client : bool,
     pub peer_addr : SocketAddr,
+    pub stream : TcpStream,
+    wbuf : Buffer,
+    rbuf : Buffer,
 }
 
-impl<'a> Stream<'a> {
-    pub fn connect<T : Streamer<'a> + 'a>(looper : &Rc<RefCell<Looper<'a>>>, streamer : T, to : SocketAddr) -> Result<Token> {
-        let ter = Rc::new(RefCell::new(StreamAndStreamer {
-            stream : Stream {
-                lt : LooperAndToken {
-                    looper : Rc::downgrade(looper),
-                    token : Token(0),
-                    registered : EventSet::none(),
-                },
-                interest : EventSet::all(),
-                got : EventSet::none(),
-                stream : try!(TcpStream::connect(&to)),
-                wbuf : Buffer::with_capacity(1024),
-                is_client : true,
-                peer_addr : to,
-            },
-            streamer : streamer
-        }));
-        Ok(Looper::register(looper, ter))
-    }
+impl<'a> StreamBody<'a> {
     pub fn close(&mut self) {
         if self.interest == EventSet::none() {
             return;
@@ -85,7 +66,7 @@ impl<'a> Stream<'a> {
     }
 }
 
-impl<'a> Write for Stream<'a> {
+impl<'a> Write for StreamBody<'a> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         let len = buf.len();
         if self.wbuf.is_empty() && self.got.is_writable() {
@@ -138,12 +119,59 @@ impl<'a> Write for Stream<'a> {
     }
 }
 
-struct StreamAndStreamer<'a, T : Streamer<'a> + 'a> {
-    stream : Stream<'a>,
+pub struct Stream<'a, T : Streamer<'a> + 'a> {
+    stream : StreamBody<'a>,
     streamer : T,
 }
 
-impl<'a, T : Streamer<'a> + 'a> Eventer<'a> for StreamAndStreamer<'a, T> {
+impl<'a, T : Streamer<'a> + 'a> Stream<'a, T> {
+    pub fn connect(looper : &Rc<RefCell<Looper<'a>>>, streamer : T, to : SocketAddr) -> Result<Rc<RefCell<Stream<'a, T>>>> {
+        let ter = Rc::new(RefCell::new(Stream {
+            stream : StreamBody {
+                lt : LooperAndToken {
+                    looper : Rc::downgrade(looper),
+                    token : Token(0),
+                    registered : EventSet::none(),
+                },
+                interest : EventSet::all(),
+                got : EventSet::none(),
+                is_client : true,
+                peer_addr : to,
+                stream : try!(TcpStream::connect(&to)),
+                wbuf : Buffer::with_capacity(1024),
+                rbuf : Buffer::with_capacity(1024),
+            },
+            streamer : streamer
+        }));
+        let a : Rc<RefCell<Eventer<'a>>> = ter.clone();
+        Looper::register(looper, &a);
+        Ok(ter)
+    }
+    pub fn accepted(looper : &Rc<RefCell<Looper<'a>>>, streamer : T, stream : TcpStream, to : SocketAddr) -> Rc<RefCell<Stream<'a, T>>> {
+        let ter = Rc::new(RefCell::new(Stream {
+            stream : StreamBody {
+                lt : LooperAndToken {
+                    looper : Rc::downgrade(looper),
+                    token : Token(0),
+                    registered : EventSet::none(),
+                },
+                interest : EventSet::all(),
+                got : EventSet::none(),
+                is_client : false,
+                peer_addr : to,
+                stream : stream,
+                wbuf : Buffer::with_capacity(1024),
+                rbuf : Buffer::with_capacity(1024),
+            },
+            streamer : streamer
+        }));
+        let a : Rc<RefCell<Eventer<'a>>> = ter.clone();
+        Looper::register(looper, &a);
+        ter
+    }
+}
+
+impl<'a, T : Streamer<'a> + 'a> Eventer<'a> for Stream<'a, T> {
     fn looper_and_token(&mut self) -> &mut LooperAndToken<'a> {
         &mut self.stream.lt
     }

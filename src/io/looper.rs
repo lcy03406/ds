@@ -50,14 +50,13 @@ impl<'a> Looper<'a> {
         }
     }
 
-    pub fn register(looper : &Rc<RefCell<Looper<'a>>>, ter: Rc<RefCell<Eventer<'a>+'a>>) -> Token {
+    pub fn register(looper : &Rc<RefCell<Looper<'a>>>, ter: &Rc<RefCell<Eventer<'a>+'a>>) {
         let mut myself = looper.borrow_mut();
         let token = myself.new_token();
         ter.borrow_mut().looper_and_token().token = token;
-        myself.eventers.insert(token, ter);
+        myself.eventers.insert(token, ter.clone());
         myself.to_reg.push(token);
         trace!("looper register {:?}", token);
-        token
     }
 
     pub fn reregister(&mut self, token : Token) {
