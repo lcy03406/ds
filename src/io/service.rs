@@ -11,6 +11,10 @@ use super::looper::{Looper, EventHandler, Eventer, LOOPER, TimerToken, TimeHandl
 use super::stream::Stream;
 use super::listen::Listen;
 
+pub trait ServiceBroker {
+
+}
+
 pub struct ServiceConfig {
     pub name : String,
     pub listen : Vec<String>,

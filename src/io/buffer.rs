@@ -19,24 +19,32 @@ impl Buffer {
         }
     }
 
-    pub fn as_slice(&self) -> &[u8] {
+    pub fn data_slice(&self) -> &[u8] {
         &self.buf[self.read..self.write]
+    }
+
+    pub fn space_slice(&mut self) -> &mut [u8] {
+        &mut self.buf[self.write..]
     }
 
     pub fn cap(&self) -> usize {
         self.buf.len()
     }
 
-    pub fn len(&self) -> usize {
+    pub fn data_len(&self) -> usize {
         self.write - self.read
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+    pub fn space_len(&self) -> usize {
+        self.cap() - self.write
     }
 
-    pub fn skip(&mut self, len : usize) {
-        assert!(len <= self.len());
+    pub fn is_empty(&self) -> bool {
+        self.data_len() == 0
+    }
+
+    pub fn skip_read(&mut self, len : usize) {
+        assert!(len <= self.data_len());
         self.read += len;
         if self.is_empty() {
             self.write = 0;
@@ -44,6 +52,11 @@ impl Buffer {
         } else if self.read + self.read >= self.cap() {
             self.move_to_begin();
         }
+    }
+
+    pub fn done_write(&mut self, len : usize) {
+        assert!(len <= self.space_len());
+        self.write += len;
     }
 
     fn reserve(&mut self, cap : usize) {
@@ -85,7 +98,7 @@ impl io::Read for Buffer {
             unsafe {
                 ptr::copy_nonoverlapping(self.ptr_read(), buf.as_mut_ptr(), len);
             }
-            self.skip(len);
+            self.skip_read(len);
             Ok(len)
         }
     }
@@ -93,7 +106,7 @@ impl io::Read for Buffer {
 
 impl io::Write for Buffer {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let space = self.cap() - self.write;
+        let space = self.space_len();
         let len = buf.len();
         if space < len {
             self.move_to_begin();
