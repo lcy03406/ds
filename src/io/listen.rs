@@ -7,91 +7,52 @@ use std::str::FromStr;
 use mio::{Token, Evented, EventSet};
 use mio::tcp::{TcpStream, TcpListener, Shutdown};
 
-use super::looper::{Eventer, Looper, LooperAndToken};
-use super::stream::{Stream, Streamer};
+use super::looper::{Eventer, LOOPER};
 
-pub trait Listener<'a, > {
-    type Streamer : Streamer<'a> + Sized + 'a;
-    fn on_accept(&self) -> Self::Streamer;
-    fn on_close(&self, c : &mut Listen<'a>);
-}
-
-pub struct Listen<'a> {
-    lt : LooperAndToken<'a>,
+pub struct Listen {
+    token : Token,
+    registered : EventSet,
     interest : EventSet,
-    got : EventSet,
-    pub listener : TcpListener,
+    pub got : EventSet,
     pub addr : SocketAddr,
+    pub listener : TcpListener,
 }
 
-impl<'a> Listen<'a> {
-    pub fn close(&mut self) {
+impl Listen {
+    pub fn new(token : Token, addr : SocketAddr) -> Self {
+        Listen {
+            token : token,
+            registered : EventSet::none(),
+            interest : EventSet::all(),
+            got : EventSet::none(),
+            addr : addr,
+            listener : TcpListener::bind(&addr).unwrap(),
+        }
+    }
+    pub fn shutdown(&mut self) {
         if self.interest == EventSet::none() {
             return;
         }
         self.got = EventSet::hup();
         trace!("listen shutdown");
         self.interest = EventSet::none();
-        self.lt.reregister();
-    }
-    fn on_ready<S : Streamer<'a> + Sized + 'a>(&mut self, listener : &mut (Listener<'a, Streamer=S> + 'a), es : EventSet) {
-        let got = self.got;
-        self.got = es;
-        if es.is_error() || es.is_hup() {
-            trace!("listen error?");
-            self.close();
-            return;
-        }
-        let looper;
-        match Weak::upgrade(&self.lt.looper) {
-            Some(l) => {
-                looper = l;
-            }
-            None => {
-                trace!("listen weak looper");
-                self.close();
-                return;
-            }
-        }
-        if es.is_writable() {
-            trace!("listen writable?");
-        }
-        if es.is_readable() {
-            trace!("listen read");
-            match self.listener.accept() {
-                Ok(Some((stream, addr))) => {
-                    Stream::accepted(&looper, listener.on_accept(), stream, addr);
-                }
-                Ok(None) => {
-                    trace!("listen accept none");
-                }
-                Err(e) => {
-                    trace!("listen accept err {:?}", e);
-                }
-            }
-        }
+        LOOPER.with(|looper| {
+            looper.borrow_mut().reregister(self.token);
+        });
     }
 }
 
-struct ListenAndListener<'a, T : Listener<'a> + 'a> {
-    listen : Listen<'a>,
-    listener : T,
-}
-
-impl<'a, T : Listener<'a> + 'a> Eventer<'a> for ListenAndListener<'a, T> {
-    fn looper_and_token(&mut self) -> &mut LooperAndToken<'a> {
-        &mut self.listen.lt
+impl Eventer for Listen {
+    fn registered(&self) -> EventSet {
+        self.registered
+    }
+    fn set_registered(&mut self, es : EventSet) {
+        self.registered = es;
     }
     fn interest(&self) -> EventSet {
-        self.listen.interest
+        self.interest
     }
     fn evented(&self) -> &Evented {
-        &self.listen.listener
-    }
-    fn on_ready(&mut self, es : EventSet) {
-        self.listen.on_ready(&mut self.listener, es);
-    }
-    fn on_close(&mut self) {
-        self.listener.on_close(&mut self.listen);
+        &self.listener
     }
 }

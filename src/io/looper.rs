@@ -1,79 +1,66 @@
 use std::collections::HashMap;
-use std::rc::{Rc, Weak};
 use std::cell::{RefCell, RefMut};
+use std::rc::{Rc, Weak};
 use std::mem::swap;
+use std::thread;
 use std::io::{Result, ErrorKind, Write, Read};
 use mio::{Handler, EventLoop, Token, EventSet, PollOpt, Evented};
 
-pub trait Eventer<'a> {
-    fn looper_and_token(&mut self) -> &mut LooperAndToken<'a>;
+thread_local!(pub static LOOPER: RefCell<Looper> = RefCell::new(Looper::new()));
+
+pub trait Eventer {
+    fn registered(&self) -> EventSet;
+    fn set_registered(&mut self, es : EventSet);
     fn interest(&self) -> EventSet;
     fn evented(&self) -> &Evented;
-    fn on_ready(&mut self, es : EventSet);
-    fn on_close(&mut self);
 }
 
-pub struct LooperAndToken<'a> {
-    pub looper : Weak<RefCell<Looper<'a>>>,
-    pub token : Token,
-    pub registered : EventSet,
+/*
+pub struct EventHandle {
+    token : Token,
+    registered : EventSet,
+    interest : EventSet,
+}
+*/
+
+pub trait EventHandler {
+    fn get_eventer(&mut self, token : Token) -> Option<Rc<RefCell<Eventer>>> ;
+    fn on_ready(&mut self, token : Token, es : EventSet);
+    fn on_close(&mut self, token : Token);
 }
 
-impl<'a> LooperAndToken<'a> {
-    pub fn reregister(&mut self) {
-        match Weak::upgrade(&self.looper) {
-            Some(ref loo) => {
-                loo.borrow_mut().reregister(self.token);
-            }
-            None => {
-            }
-        }
-    }
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]                                                                                   
+pub struct TimerToken(pub usize);
+
+pub trait TimeHandler {
+    fn on_timer(&mut self, tt : TimerToken);
 }
 
-pub struct Looper<'a> {
-    eventers : HashMap<Token, Rc<RefCell<Eventer<'a>+'a>>>,
+pub struct Looper {
+    eventers : HashMap<Token, Rc<RefCell<EventHandler+'static>>>,
     token_counter: usize,
-    current : Token,
     to_reg : Vec<Token>,
     pending : Vec<Token>,
+    timers : HashMap<TimerToken, (Rc<RefCell<TimeHandler+'static>>, u64)>,
+    timer_counter: usize,
+    timer_to_reg : Vec<TimerToken>,
 }
 
-impl<'a> Looper<'a> {
+impl Looper {
     pub fn new() -> Self {
         Looper {
             eventers : HashMap::new(),
             token_counter : 0,
-            current : Token(0),
             to_reg : Vec::new(),
             pending : Vec::new(),
+            timers : HashMap::new(),
+            timer_counter : 0,
+            timer_to_reg : Vec::new(),
         }
     }
 
-    pub fn register(looper : &Rc<RefCell<Looper<'a>>>, ter: &Rc<RefCell<Eventer<'a>+'a>>) {
-        let mut myself = looper.borrow_mut();
-        let token = myself.new_token();
-        ter.borrow_mut().looper_and_token().token = token;
-        myself.eventers.insert(token, ter.clone());
-        myself.to_reg.push(token);
-        trace!("looper register {:?}", token);
-    }
-
-    pub fn reregister(&mut self, token : Token) {
-        debug_assert!(self.eventers.contains_key(&token));
-        if token == self.current {
-            trace!("looper reregister current {:?}", token);
-            return;
-        }
-        match self.pending.binary_search(&token) {
-            Ok(idx) => {
-                trace!("looper reregister already {:?}", token);
-            }
-            Err(idx) => {
-                trace!("looper reregister pending {:?}", token);
-                self.pending.insert(idx, token);
-            }
-        }
+    fn is_empty(&self) -> bool {
+        self.eventers.is_empty() && self.timers.is_empty()
     }
 
     fn new_token(&mut self) -> Token {
@@ -87,117 +74,220 @@ impl<'a> Looper<'a> {
             }
         }
     }
-}
 
-pub struct LoopHandler<'a> {
-    pub looper : Rc<RefCell<Looper<'a>>>
-}
-
-impl<'a> LoopHandler<'a> {
-    pub fn new() -> Self {
-        LoopHandler {
-            looper : Rc::new(RefCell::new(Looper::new()))
+    fn get_handler(&mut self, token : Token) -> Option<Rc<RefCell<EventHandler>>> {
+        match self.eventers.get(&token) {
+            None => {
+                None
+            }
+            Some(h) => {
+                Some(h.clone())
+            }
         }
     }
+
+    fn get_eventer(&mut self, token : Token) -> Option<Rc<RefCell<Eventer>>> {
+        match self.eventers.get(&token) {
+            None => {
+                None
+            }
+            Some(h) => {
+                h.borrow_mut().get_eventer(token)
+            }
+        }
+    }
+
+    pub fn register(&mut self, h : Rc<RefCell<EventHandler>>) -> Token {
+        let token = self.new_token();
+        self.eventers.insert(token, h);
+        self.to_reg.push(token);
+        trace!("looper register {:?}", token);
+        token
+    }
+
+    pub fn reregister(&mut self, token : Token) {
+        debug_assert!(self.eventers.contains_key(&token));
+        match self.pending.binary_search(&token) {
+            Ok(idx) => {
+                trace!("looper reregister already {:?}", token);
+            }
+            Err(idx) => {
+                trace!("looper reregister pending {:?}", token);
+                self.pending.insert(idx, token);
+            }
+        }
+    }
+
+    fn new_timer(&mut self) -> TimerToken {
+        loop {
+            self.timer_counter += 1;
+            if self.timer_counter == usize::max_value() {
+                self.timer_counter = 1;
+            }
+            let t = TimerToken(self.timer_counter);
+            if !self.timers.contains_key(&t) {
+                return t;
+            }
+        }
+    }
+
+    pub fn register_timer(&mut self, h : Rc<RefCell<TimeHandler>>, delay : u64) -> TimerToken {
+        let token = self.new_timer();
+        self.timers.insert(token, (h, delay));
+        self.timer_to_reg.push(token);
+        trace!("looper register timer {:?}", token);
+        token
+    }
+}
+
+pub struct LoopHandler;
+
+impl LoopHandler {
     pub fn run(&mut self) {
         let mut el = EventLoop::new().unwrap();
         self.tick(&mut el);
         el.run(self);
     }
-    fn loop_register(&mut self, el : &mut EventLoop<Self>) {
-        let mut looper = self.looper.borrow_mut();
-        for token in &looper.to_reg {
-            match looper.eventers.get(&token) {
+    fn loop_register(&mut self, el : &mut EventLoop<Self>, lp : &RefCell<Looper>) {
+        let mut looper = lp.borrow_mut();
+        if looper.to_reg.is_empty() {
+            return;
+        }
+        let mut to_reg = Vec::new();
+        swap(&mut to_reg, &mut looper.to_reg);
+        for token in to_reg {
+            match looper.get_eventer(token) {
                 None => {
-                    assert!(false);
+                    trace!("loop_register none? {:?}", token);
+                    looper.reregister(token);
+                    continue;
                 }
-                Some(ter) => {
-                    let t = ter.borrow_mut();
+                Some(tt) => {
+                    let t = tt.borrow();
                     let es = t.interest();
-                    el.register(t.evented(), *token, es, PollOpt::edge());
+                    el.register(t.evented(), token, es, PollOpt::edge());
                     trace!("event_loop register {:?}", token);
                 }
             }
         }
-        looper.to_reg.clear();
     }
-    fn loop_reregister(&mut self, el : &mut EventLoop<Self>) {
-        let mut pending;
+    fn loop_reregister(&mut self, el : &mut EventLoop<Self>, lp : &RefCell<Looper>) {
+        let mut closed = HashMap::new();
         {
-            let swap_pending = &mut self.looper.borrow_mut().pending;
-            if swap_pending.is_empty() {
+            let mut looper = lp.borrow_mut();
+            if looper.pending.is_empty() {
                 return;
             }
-            pending = Vec::new();
-            swap(&mut pending, swap_pending);
-        }
-        let mut ter;
-        for token in pending {
-            match self.looper.borrow().eventers.get(&token) {
-                None => {
-                    assert!(false);
-                    continue;
-                }
-                Some(e) => {
-                    ter = e.clone();
+            let mut pending = Vec::new();
+            swap(&mut pending, &mut looper.pending);
+            for token in pending {
+                match looper.get_eventer(token) {
+                    None => {
+                        trace!("loop_reregister none? {:?}", token);
+                        match looper.eventers.remove(&token) {
+                            None => {
+                            }
+                            Some(h) => {
+                                closed.insert(token, h);
+                            }
+                        }
+                    }
+                    Some(tt) => {
+                        let mut t = tt.borrow_mut();
+                        let es = t.interest();
+                        if es == EventSet::none() {
+                            el.deregister(t.evented());
+                            trace!("event_loop deregister {:?}", token);
+                            match looper.eventers.remove(&token) {
+                                None => {
+                                }
+                                Some(h) => {
+                                    closed.insert(token, h);
+                                }
+                            }
+                        } else if t.registered() != es {
+                            el.reregister(t.evented(), token, es, PollOpt::edge());
+                            trace!("event_loop reregister {:?} {:?}", token, es);
+                            t.set_registered(es);
+                        } else {
+                            trace!("event_loop reregister same? {:?} {:?}", token, es);
+                        }
+                    }
                 }
             }
-            self.loop_reregister_eventer(el, &mut *ter.borrow_mut());
+        }
+        for (token, h) in closed {
+            trace!("handler on_close {:?}", token);
+            h.borrow_mut().on_close(token);
+            trace!("handler on_close done {:?}", token);
         }
     }
-    fn loop_reregister_eventer(&mut self, el : &mut EventLoop<Self>, t : &mut Eventer) {
-        let es = t.interest();
-        let token : Token = t.looper_and_token().token;
-        if es == EventSet::none() {
-            el.deregister(t.evented());
-            trace!("event_loop deregister {:?}", token);
-            self.looper.borrow_mut().eventers.remove(&token);
-            trace!("handler on_close {:?}", token);
-            self.looper.borrow_mut().current = token;
-            t.on_close();
-            self.looper.borrow_mut().current = Token(0);
-            trace!("handler on_close done {:?}", token);
-        } else if t.looper_and_token().registered != es {
-            el.reregister(t.evented(), token, es, PollOpt::edge());
-            trace!("event_loop reregister {:?} {:?}", token, es);
-            t.looper_and_token().registered = es;
+    fn loop_register_timer(&mut self, el : &mut EventLoop<Self>, lp : &RefCell<Looper>) {
+        let mut looper = lp.borrow_mut();
+        if looper.timer_to_reg.is_empty() {
+            return;
+        }
+        let mut timer_to_reg = Vec::new();
+        swap(&mut timer_to_reg, &mut looper.timer_to_reg);
+        for token in timer_to_reg {
+            match looper.timers.get(&token) {
+                None => {
+                    trace!("loop_register_timer none? {:?}", token);
+                    continue;
+                }
+                Some(&(_, delay)) => {
+                    el.timeout_ms(token, delay);
+                    trace!("event_loop register timer {:?} {}", token, delay);
+                }
+            }
         }
     }
 }
 
-impl<'a> Handler for LoopHandler<'a> {
-    type Timeout = Token;
+impl Handler for LoopHandler {
+    type Timeout = TimerToken;
     type Message = ();
 
     fn ready(&mut self, el : &mut EventLoop<Self>, token : Token, es : EventSet) {
-        let mut ter;
-        match self.looper.borrow().eventers.get(&token) {
+        match LOOPER.with(|looper| {
+            looper.borrow_mut().get_handler(token)
+        }) {
             None => {
-                assert!(false);
-                return;
+                trace!("handler on_ready none? {:?} {:?}", token, es);
             }
-            Some(e) => {
-                ter = e.clone();
+            Some(h) => {
+                trace!("handler on_ready {:?} {:?}", token, es);
+                h.borrow_mut().on_ready(token, es);
+                trace!("handler on_ready done {:?}", token);
             }
-        }
-        let mut t = ter.borrow_mut();
-        trace!("handler on_ready {:?} {:?}", token, es);
-        self.looper.borrow_mut().current = token;
-        t.on_ready(es);
-        self.looper.borrow_mut().current = Token(0);
-        trace!("handler on_ready done {:?}", token);
-        self.loop_reregister_eventer(el, &mut *t);
-        self.loop_register(el);
+        };
+    }
+    fn timeout(&mut self, el : &mut EventLoop<Self>, token : TimerToken) {
+        match LOOPER.with(|looper| {
+            looper.borrow_mut().timers.remove(&token)
+        }) {
+            None => {
+                trace!("handler on_timer none? {:?}", token);
+            }
+            Some((h, _)) => {
+                trace!("handler on_timer {:?}", token);
+                h.borrow_mut().on_timer(token);
+                trace!("handler on_ready done {:?}", token);
+            }
+        };
     }
     fn tick(&mut self, el: &mut EventLoop<Self>) {
         trace!("handler tick");
-        self.loop_reregister(el);
-        self.loop_register(el);
-        if self.looper.borrow().eventers.is_empty() {
-            trace!("handler shutdown");
-            el.shutdown();
-        } else {
-            trace!("handler eventes {:}", self.looper.borrow().eventers.len());
-        }
+        LOOPER.with(|looper| {
+            self.loop_reregister(el, &looper);
+            self.loop_register(el, &looper);
+            self.loop_register_timer(el, &looper);
+            if looper.borrow().is_empty() {
+                trace!("handler shutdown");
+                el.shutdown();
+            } else {
+                trace!("handler eventes {:?}, timers {:?}", looper.borrow().eventers.len(), looper.borrow().timers.len());
+            }
+        });
     }
 }
