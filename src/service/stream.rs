@@ -14,6 +14,7 @@ pub struct Stream {
     interest : EventSet,
     pub got : EventSet,
     pub is_client : bool,
+    pub reconnect : bool,
     pub peer_addr : SocketAddr,
     pub stream : TcpStream,
     wbuf : Buffer,
@@ -26,13 +27,14 @@ const MORE_WBUF_SIZE : usize = 4096;
 const MORE_RBUF_SIZE : usize = 4096;
 
 impl Stream {
-    pub fn new(token : Token, stream : TcpStream, is_client : bool, peer_addr : SocketAddr) -> Self {
+    pub fn new(token : Token, stream : TcpStream, is_client : bool, reconnect : bool, peer_addr : SocketAddr) -> Self {
         Stream {
             token : token,
             registered : EventSet::none(),
             interest : EventSet::all(),
             got : EventSet::none(),
             is_client : is_client,
+            reconnect : reconnect,
             peer_addr : peer_addr,
             stream : stream,
             wbuf : Buffer::with_capacity(INIT_WBUF_SIZE),
@@ -48,7 +50,7 @@ impl Stream {
         trace!("stream shutdown");
         self.interest = EventSet::none();
         LOOPER.with(|looper| {
-            looper.borrow_mut().reregister(self.token);
+            looper.borrow_mut().as_mut().unwrap().reregister(self.token);
         });
     }
     fn want_writable(&mut self) {

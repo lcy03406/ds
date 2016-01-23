@@ -5,7 +5,7 @@ use std::io::{Write, BufRead};
 use super::*;
 
 struct TestService;
-service_define!(TEST_SERVICE : TestService = TestService);
+service_define!(TEST_SERVICE : TestService);
 
 impl ServiceStreamer for TestService {
     type Packet = u8;
@@ -55,14 +55,13 @@ impl ServiceHandler for TestService {
 
 #[test]
 fn service_test() {
-    use env_logger;
-    env_logger::init().ok();
+    init();
     let conf = ServiceConfig {
         name : "test service".to_string(),
         listen : vec!["0.0.0.0:12306"].iter().map(|s| s.to_string()).collect(),
         connect : vec!["127.0.0.1:12306"].iter().map(|s| s.to_string()).collect(),
     };
-    service_start!(TEST_SERVICE, conf);
+    service_start!(TEST_SERVICE, TestService, conf);
     trace!("loop begin");
     run_loop();
     trace!("loop exit");

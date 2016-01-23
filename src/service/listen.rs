@@ -30,7 +30,7 @@ impl Listen {
         trace!("listen shutdown");
         self.interest = EventSet::none();
         LOOPER.with(|looper| {
-            looper.borrow_mut().reregister(self.token);
+            looper.borrow_mut().as_mut().unwrap().reregister(self.token);
         });
     }
 }

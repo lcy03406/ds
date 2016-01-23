@@ -3,8 +3,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::mem::swap;
 use mio::{Handler, EventLoop, Token, EventSet, PollOpt, Evented};
+use env_logger;
 
-thread_local!(pub static LOOPER: RefCell<Looper> = RefCell::new(Looper::new()));
+thread_local!(pub static LOOPER: RefCell<Option<Looper>> = RefCell::new(None));
 
 pub trait Eventer {
     fn registered(&self) -> EventSet;
@@ -150,8 +151,9 @@ impl LoopHandler {
         self.tick(&mut el);
         el.run(self).unwrap();
     }
-    fn loop_register(&mut self, el : &mut EventLoop<Self>, lp : &RefCell<Looper>) {
-        let mut looper = lp.borrow_mut();
+    fn loop_register(&mut self, el : &mut EventLoop<Self>, lp : &RefCell<Option<Looper>>) {
+        let mut borrow = lp.borrow_mut();
+        let mut looper = borrow.as_mut().unwrap();
         if looper.to_reg.is_empty() {
             return;
         }
@@ -173,10 +175,11 @@ impl LoopHandler {
             }
         }
     }
-    fn loop_reregister(&mut self, el : &mut EventLoop<Self>, lp : &RefCell<Looper>) {
+    fn loop_reregister(&mut self, el : &mut EventLoop<Self>, lp : &RefCell<Option<Looper>>) {
         let mut closed = HashMap::new();
         {
-            let mut looper = lp.borrow_mut();
+            let mut borrow = lp.borrow_mut();
+            let mut looper = borrow.as_mut().unwrap();
             if looper.pending.is_empty() {
                 return;
             }
@@ -224,8 +227,9 @@ impl LoopHandler {
             trace!("handler on_close done {:?}", token);
         }
     }
-    fn loop_register_timer(&mut self, el : &mut EventLoop<Self>, lp : &RefCell<Looper>) {
-        let mut looper = lp.borrow_mut();
+    fn loop_register_timer(&mut self, el : &mut EventLoop<Self>, lp : &RefCell<Option<Looper>>) {
+        let mut borrow = lp.borrow_mut();
+        let mut looper = borrow.as_mut().unwrap();
         if looper.timer_to_reg.is_empty() {
             return;
         }
@@ -252,7 +256,7 @@ impl Handler for LoopHandler {
 
     fn ready(&mut self, _ : &mut EventLoop<Self>, token : Token, es : EventSet) {
         match LOOPER.with(|looper| {
-            looper.borrow_mut().get_handler(token)
+            looper.borrow_mut().as_mut().unwrap().get_handler(token)
         }) {
             None => {
                 trace!("handler on_ready none? {:?} {:?}", token, es);
@@ -266,7 +270,7 @@ impl Handler for LoopHandler {
     }
     fn timeout(&mut self, _ : &mut EventLoop<Self>, token : TimerToken) {
         match LOOPER.with(|looper| {
-            looper.borrow_mut().timers.remove(&token)
+            looper.borrow_mut().as_mut().unwrap().timers.remove(&token)
         }) {
             None => {
                 trace!("handler on_timer none? {:?}", token);
@@ -281,17 +285,33 @@ impl Handler for LoopHandler {
     fn tick(&mut self, el: &mut EventLoop<Self>) {
         trace!("handler tick");
         LOOPER.with(|looper| {
-            while looper.borrow().has_pending() {
+            while looper.borrow().as_ref().unwrap().has_pending() {
                 self.loop_reregister(el, &looper);
                 self.loop_register(el, &looper);
                 self.loop_register_timer(el, &looper);
             }
-            if looper.borrow().is_empty() {
+            if looper.borrow().as_ref().unwrap().is_empty() {
                 trace!("handler shutdown");
                 el.shutdown();
             } else {
-                trace!("handler eventes {:?}, timers {:?}", looper.borrow().eventers.len(), looper.borrow().timers.len());
+                trace!("handler eventes {:?}, timers {:?}",
+                       looper.borrow().as_ref().unwrap().eventers.len(),
+                       looper.borrow().as_ref().unwrap().timers.len());
             }
         });
     }
+}
+
+pub fn init() {
+    env_logger::init().ok();
+    LOOPER.with(|looper| {
+        if looper.borrow().is_none() {
+            *looper.borrow_mut() = Some(Looper::new());
+        }
+    })
+}
+
+pub fn run_loop() {
+    let mut handler = LoopHandler;
+    handler.run();
 }

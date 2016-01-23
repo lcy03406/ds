@@ -16,9 +16,6 @@ pub use self::service::ServiceHandler;
 pub use self::bufwrite::BufWrite;
 pub use mio::Token;
 
-use self::looper::LoopHandler;
-pub fn run_loop() {
-    let mut handler = LoopHandler;
-    handler.run();
-}
+pub use self::looper::init;
+pub use self::looper::run_loop;
 

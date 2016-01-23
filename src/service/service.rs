@@ -86,19 +86,20 @@ impl<H: ServiceHandler + 'static > ServiceRef<H> {
             SocketAddr::from_str(to).unwrap()
         }).collect();
         for addr in to_addrs {
-            self.connect(addr);
+            self.connect(addr, true);
         };
     }
     pub fn exit(&self) {
         let mut service = self.service.borrow_mut();
         for stream in service.streams.values() {
+            stream.borrow_mut().reconnect = false;
             stream.borrow_mut().shutdown();
         }
-        service.streams.clear();
+        //service.streams.clear();
         for listen in service.listens.values() {
             listen.borrow_mut().shutdown();
         }
-        service.listens.clear();
+        //service.listens.clear();
     }
     pub fn write(&self, token : Token, packet : &H::Packet) {
         let stream = match self.service.borrow_mut().streams.get_mut(&token) {
@@ -142,19 +143,20 @@ impl<H: ServiceHandler + 'static > ServiceRef<H> {
     fn listen(&self, on : SocketAddr) {
         let c : ServiceRef<H> = self.clone();
         let token = LOOPER.with(|looper| {
-            looper.borrow_mut().register(Rc::new(RefCell::new(c)))
+            looper.borrow_mut().as_mut().unwrap().register(Rc::new(RefCell::new(c)))
         });
         self.service.borrow_mut().listens.insert(token, Rc::new(RefCell::new(Listen::new(token, on))));
     }
-    fn connect(&self, to : SocketAddr) {
+    fn connect(&self, to : SocketAddr, reconnect : bool) {
         let token = LOOPER.with(|looper| {
-            looper.borrow_mut().register(Rc::new(RefCell::new(self.clone())))
+            looper.borrow_mut().as_mut().unwrap().register(Rc::new(RefCell::new(self.clone())))
         });
-        self.service.borrow_mut().streams.insert(token, Rc::new(RefCell::new(Stream::new(token, TcpStream::connect(&to).unwrap(), true, to))));
+        let stream = Stream::new(token, TcpStream::connect(&to).unwrap(), true, reconnect, to);
+        self.service.borrow_mut().streams.insert(token, Rc::new(RefCell::new(stream)));
     }
     fn timer_connect(&self, to : SocketAddr) {
         let token = LOOPER.with(|looper| {
-            looper.borrow_mut().register_timer(Rc::new(RefCell::new(self.clone())), 5_000)
+            looper.borrow_mut().as_mut().unwrap().register_timer(Rc::new(RefCell::new(self.clone())), 5_000)
         });
         self.service.borrow_mut().connecting.insert(token, to);
     }
@@ -238,10 +240,10 @@ impl<H: ServiceHandler + 'static > ServiceRef<H> {
                         match listen.listener.accept() {
                             Ok(Some((stream, peer))) => {
                                 let token = LOOPER.with(|looper| {
-                                    looper.borrow_mut().register(Rc::new(RefCell::new(self.clone())))
+                                    looper.borrow_mut().as_mut().unwrap().register(Rc::new(RefCell::new(self.clone())))
                                 });
                                 streams.insert(token,
-                                    Rc::new(RefCell::new(Stream::new(token, stream, false, peer))));
+                                    Rc::new(RefCell::new(Stream::new(token, stream, false, false, peer))));
                             }
                             Ok(None) => {
                                 trace!("listen accept none");
@@ -266,7 +268,7 @@ impl<H: ServiceHandler + 'static > ServiceRef<H> {
                 }
                 Some(s) => {
                     let stream = s.borrow();
-                    if stream.is_client {
+                    if stream.is_client && stream.reconnect {
                         info!("Service {} disconnected from {:?} {}", service.name, token, stream.peer_addr);
                         Some(stream.peer_addr)
                     } else {
@@ -323,7 +325,7 @@ impl<H: ServiceHandler + 'static> EventHandler for ServiceRef<H> {
         let ok = self.on_ready_stream(token, es) || self.on_ready_listen(token, es);
         if !ok {
             LOOPER.with(|looper| {
-                looper.borrow_mut().reregister(token);
+                looper.borrow_mut().as_mut().unwrap().reregister(token);
             });
         }
     }
@@ -339,7 +341,7 @@ impl<H: ServiceHandler + 'static> TimeHandler for ServiceRef<H> {
             None => {
             }
             Some(addr) => {
-                self.connect(addr);
+                self.connect(addr, true);
             }
         }
     }
@@ -347,32 +349,39 @@ impl<H: ServiceHandler + 'static> TimeHandler for ServiceRef<H> {
 
 #[macro_export]
 macro_rules! service_define {
-    ($n:ident : $t:ty = $h:expr) => {
-        thread_local!(static $n : ServiceRef<$t> = ServiceRef::new($h));
-    }
+    ($n:ident : $t:ty) => {
+        thread_local!(static $n : ::std::cell::RefCell<Option<ServiceRef<$t>>> = ::std::cell::RefCell::new(None));
+    };
+    (pub $n:ident : $t:ty) => {
+        thread_local!(pub static $n : ::std::cell::RefCell<Option<ServiceRef<$t>>> = ::std::cell::RefCell::new(None));
+    };
 }
 #[macro_export]
 macro_rules! service_start {
-    ($n:ident, $c:expr) => {
-        $n.with(|s| s.start($c))
+    ($n:ident, $h:expr, $c:expr) => {
+        $n.with(move |s| {
+            assert!(s.borrow().is_none());
+            *s.borrow_mut() = Some(ServiceRef::new($h));
+            s.borrow_mut().as_mut().unwrap().start($c)
+        })
     }
 }
 #[macro_export]
 macro_rules! service_exit {
     ($n:ident) => {
-        $n.with(|s| s.exit())
+        $n.with(|s| s.borrow_mut().as_mut().unwrap().exit())
     }
 }
 #[macro_export]
 macro_rules! service_write {
     ($n:ident , $t:expr, $p:expr) => {
-        $n.with(|s| s.write($t, $p))
+        $n.with(|s| s.borrow_mut().as_mut().unwrap().write($t, $p))
     }
 }
 #[macro_export]
 macro_rules! service_shutdown {
     ($n:ident , $t:expr) => {
-        $n.with(|s| s.shutdown($t))
+        $n.with(|s| s.borrow_mut().as_mut().unwrap().shutdown($t))
     }
 }
 
