@@ -9,7 +9,7 @@ pub trait Streamer {
     type Packet : Serialize + Deserialize;
     type Error : Error + Debug;
     fn write_len(len : usize, writer : &mut Write) -> Result<(), Self::Error>;
-    fn read_len(reader : &mut &[u8]) -> Result<Option<usize>, Self::Error>;
+    fn read_len(reader : &[u8]) -> Result<Option<(usize, usize)>, Self::Error>;
     fn write_to_vec(packet : &Self::Packet) -> Result<Vec<u8>, Self::Error>;
     fn read_from_slice(reader : &[u8]) -> Result<Self::Packet, Self::Error>;
     fn error_from_io(e : io::Error) -> Self::Error; // where Self:Sized;
@@ -40,14 +40,16 @@ impl<P, E, T> ServiceStreamer for T
         let len : usize;
         let p : Self::Packet;
         match reader.fill_buf() {
-            Ok(mut buf) => {
-                match Self::read_len(&mut buf) {
-                    Ok(Some(alen)) => {
-                        if buf.len() < alen {
+            Ok(buf) => {
+                let len1 = buf.len();
+                match Self::read_len(buf) {
+                    Ok(Some((header_len, packet_len))) => {
+                        let len2 = buf.len();
+                        len = header_len + packet_len;
+                        if buf.len() < len {
                             return Ok(None);
                         }
-                        len = alen;
-                        p = try!(Self::read_from_slice(&buf));
+                        p = try!(Self::read_from_slice(&buf[header_len..len]));
                     }
                     Ok(None) => {
                         return Ok(None);
@@ -65,7 +67,7 @@ impl<P, E, T> ServiceStreamer for T
                 }
             }
         }
-        reader.consume(4 + len);
+        reader.consume(len);
         Ok(Some(p))
     }
 }

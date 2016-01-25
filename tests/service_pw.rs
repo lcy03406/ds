@@ -1,15 +1,24 @@
-#![cfg(test)]
+#![feature(custom_derive, plugin)]
+#![plugin(serde_macros)]
+
+#[macro_use]
+extern crate ds;
+#[macro_use]
+extern crate log;
+extern crate serde;
 
 use std::cell::RefCell;
 use std::io::Write;
+use serde::{Serializer, Deserializer};
 
-use super::service::{Token, ServiceHandler, ServiceRef, ServiceConfig, init, run_loop};
-use super::streamer::json::JsonStreamer;
+use ds::service::{Token, ServiceHandler, ServiceRef, ServiceConfig, init, run_loop};
+use ds::streamer::pw::PwStreamer;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Packet {
     x : i32,
     y : i32,
+    zzz : Vec<u8>,
 }
 
 struct Stat {
@@ -52,17 +61,13 @@ impl TestService {
     }
 }
 
-impl JsonStreamer for TestService {
-    type Packet = Packet;
-}
-
 impl ServiceHandler for TestService {
     type Packet = Packet;
-    type Streamer = Self;
+    type Streamer = PwStreamer<Packet>;
     fn connected(&self, token : Token) {
         self.stat.borrow_mut().conn += 1;
         if self.stat.borrow().send == 0 {
-            service_write!(TEST_SERVICE, token, &Packet{x:1,y:1});
+            service_write!(TEST_SERVICE, token, &Packet{x:1,y:1,zzz:vec![0x21;256]});
         }
     }
     fn disconnected(&self, token : Token) {
@@ -73,7 +78,7 @@ impl ServiceHandler for TestService {
         self.stat.borrow_mut().recv += 1;
         assert!(packet.x == 1);
         if packet.y < 10 {
-            service_write!(TEST_SERVICE, token, &Packet{x:1,y:packet.y+1});
+            service_write!(TEST_SERVICE, token, &Packet{x:1,y:packet.y+1,zzz:vec![0x22;256]});
         } else {
             service_shutdown!(TEST_SERVICE, token);
         }
@@ -84,10 +89,10 @@ impl ServiceHandler for TestService {
 }
 
 #[test]
-fn service_json() {
+fn service_pw() {
     init();
     let conf = ServiceConfig {
-        name : "test service".to_string(),
+        name : "service_pw".to_string(),
         listen : vec!["0.0.0.0:44944"].iter().map(|s| s.to_string()).collect(),
         connect : vec!["127.0.0.1:44944"].iter().map(|s| s.to_string()).collect(),
     };

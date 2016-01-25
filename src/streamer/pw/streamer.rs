@@ -4,38 +4,51 @@ use std::io::Read;
 use byteorder;
 use byteorder::{WriteBytesExt, ReadBytesExt, BigEndian};
 use serde::{Serialize, Deserialize};
-use serde_json::{to_vec, from_slice, Serializer, Deserializer, Error, ErrorCode};
 
-use super::serd::Streamer;
+use ::super::super::serd::Streamer;
+use ::super::ser::Serializer;
+use ::super::de::Deserializer;
+use ::super::err::Error;
 
-pub struct JsonStreamer<P>
+pub struct PwStreamer<P>
     where P : Serialize + Deserialize
 {
     phantom : PhantomData<*const P>
 }
 
-impl<P> Streamer for JsonStreamer<P>
+impl<P> Streamer for PwStreamer<P>
     where P : Serialize + Deserialize,
 {
     type Packet = P;
     type Error = Error;
     fn write_len(len : usize, writer : &mut io::Write) -> Result<(), Self::Error> {
-        writer.write_u32::<BigEndian>(len as u32).map_err(error_from_byteorder)
+        Ok(Serializer::new(writer).compact_u32(len as u32).unwrap())
     }
     fn read_len(reader : &[u8]) -> Result<Option<(usize, usize)>, Self::Error> {
         let len1 = reader.len();
         let r = &mut &*reader;
-        if len1 < 4 {
-            Ok(None)
-        } else {
-            r.read_u32::<BigEndian>().map(|x| Some((4, x as usize))).map_err(error_from_byteorder)
+        match Deserializer::new(r).uncompact_u32() {
+            Ok(len) => {
+                let len2 = reader.len();
+                Ok(Some((len1 - len2, len as usize)))
+            }
+            Err(Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
+                let len2 = reader.len();
+                Ok(None)
+            }
+            Err(e) => {
+                assert!(false);
+                Ok(None)
+            }
         }
     }
     fn write_to_vec(packet : &Self::Packet) -> Result<Vec<u8>, Self::Error> {
-        to_vec(packet)
+        let mut buf = Vec::new();
+        try!(packet.serialize(&mut Serializer::new(&mut buf)));
+        Ok(buf)
     }
     fn read_from_slice(reader : &[u8]) -> Result<Self::Packet, Self::Error> {
-        from_slice(reader)
+        Deserialize::deserialize(&mut Deserializer::new(reader))
     }
     fn error_from_io(e : io::Error) -> Self::Error {
         Error::IoError(e)

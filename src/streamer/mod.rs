@@ -1,3 +1,5 @@
-pub mod serd;
 pub mod json;
-pub mod pwrd;
+pub mod pw;
+
+mod serd;
+

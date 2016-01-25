@@ -30,11 +30,11 @@ impl<R> Deserializer<R> where R : Read {
                 b4[1] = try!(self.reader.read_u8());
                 b4[2] = try!(self.reader.read_u8());
                 b4[3] = try!(self.reader.read_u8());
-                Ok(BigEndian::read_u32(&b4[0..3]) & ! 0xc0000000)
+                Ok(BigEndian::read_u32(&b4[0..4]) & ! 0xc0000000)
             }
             0xa0 | 0x80 => {
                 b4[1] = try!(self.reader.read_u8());
-                Ok((BigEndian::read_u16(&b4[0..1]) & ! 0x8000) as u32)
+                Ok((BigEndian::read_u16(&b4[0..2]) & ! 0x8000) as u32)
             }
             _ => {
                 Ok(b4[0] as u32)

@@ -14,5 +14,3 @@ pub mod service;
 
 pub mod streamer;
 
-#[cfg(test)]
-mod test;
