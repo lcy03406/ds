@@ -1,19 +1,18 @@
 use std::fmt::Debug;
 use std::io;
 use std::io::{Write, BufRead};
-use byteorder;
-use byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt};
 use serde::{Serialize, Deserialize, Error};
 
-use ::service::{BufWrite, ServiceStreamer};
+use ::service::ServiceStreamer;
 
 pub trait Streamer {
     type Packet : Serialize + Deserialize;
     type Error : Error + Debug;
-    fn to_vec(packet : &Self::Packet) -> Result<Vec<u8>, Self::Error>;
-    fn from_slice(reader : &[u8]) -> Result<Self::Packet, Self::Error>;
-    fn error_from_io(e : io::Error) -> Self::Error where Self:Sized;
-    fn error_from_byteorder(e : byteorder::Error) -> Self::Error where Self:Sized;
+    fn write_len(len : usize, writer : &mut Write) -> Result<(), Self::Error>;
+    fn read_len(reader : &mut &[u8]) -> Result<Option<usize>, Self::Error>;
+    fn write_to_vec(packet : &Self::Packet) -> Result<Vec<u8>, Self::Error>;
+    fn read_from_slice(reader : &[u8]) -> Result<Self::Packet, Self::Error>;
+    fn error_from_io(e : io::Error) -> Self::Error; // where Self:Sized;
 }
 
 impl<P, E, T> ServiceStreamer for T
@@ -23,11 +22,11 @@ impl<P, E, T> ServiceStreamer for T
 {
     type Packet = P;
     type Error = E;
-    fn write_packet(packet : &Self::Packet, writer : &mut BufWrite) ->Result<(), Self::Error>
+    fn write_packet(packet : &Self::Packet, writer : &mut Write) ->Result<(), Self::Error>
     {
-        match Self::to_vec(packet) {
+        match Self::write_to_vec(packet) {
             Ok(v) => {
-                try!(writer.write_u32::<LittleEndian>(v.len() as u32).map_err(Self::error_from_byteorder));
+                try!(Self::write_len(v.len(), writer as &mut Write));
                 try!(writer.write(&v).map_err(Self::error_from_io));
                 Ok(())
             }
@@ -42,14 +41,21 @@ impl<P, E, T> ServiceStreamer for T
         let p : Self::Packet;
         match reader.fill_buf() {
             Ok(mut buf) => {
-                if buf.len() < 4 {
-                    return Ok(None);
+                match Self::read_len(&mut buf) {
+                    Ok(Some(alen)) => {
+                        if buf.len() < alen {
+                            return Ok(None);
+                        }
+                        len = alen;
+                        p = try!(Self::read_from_slice(&buf));
+                    }
+                    Ok(None) => {
+                        return Ok(None);
+                    }
+                    Err(e) => {
+                        return Err(e);
+                    }
                 }
-                len = try!(buf.read_u32::<LittleEndian>().map_err(Self::error_from_byteorder)) as usize;
-                if buf.len() < len {
-                    return Ok(None);
-                }
-                p = try!(Self::from_slice(&buf));
             }
             Err(e) => {
                 if e.kind() == io::ErrorKind::WouldBlock {

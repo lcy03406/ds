@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::mem::swap;
-use mio::{Handler, EventLoop, Token, EventSet, PollOpt, Evented};
+use mio::{Handler, EventLoop, Token, EventSet, PollOpt, Evented, Timeout};
 use env_logger;
 
 thread_local!(pub static LOOPER: RefCell<Option<Looper>> = RefCell::new(None));
@@ -40,9 +40,10 @@ pub struct Looper {
     token_counter: usize,
     to_reg : Vec<Token>,
     pending : Vec<Token>,
-    timers : HashMap<TimerToken, (Rc<RefCell<TimeHandler+'static>>, u64)>,
+    timers : HashMap<TimerToken, (Rc<RefCell<TimeHandler+'static>>, u64, Option<Timeout>)>,
     timer_counter: usize,
     timer_to_reg : Vec<TimerToken>,
+    timer_to_del : Vec<TimerToken>,
 }
 
 impl Looper {
@@ -55,6 +56,7 @@ impl Looper {
             timers : HashMap::new(),
             timer_counter : 0,
             timer_to_reg : Vec::new(),
+            timer_to_del : Vec::new(),
         }
     }
 
@@ -63,7 +65,7 @@ impl Looper {
     }
 
     fn has_pending(&self) -> bool {
-        !(self.pending.is_empty() && self.to_reg.is_empty() && self.timer_to_reg.is_empty())
+        !(self.pending.is_empty() && self.to_reg.is_empty() && self.timer_to_reg.is_empty() && self.timer_to_del.is_empty())
     }
 
     fn new_token(&mut self) -> Token {
@@ -136,10 +138,23 @@ impl Looper {
 
     pub fn register_timer(&mut self, h : Rc<RefCell<TimeHandler>>, delay : u64) -> TimerToken {
         let token = self.new_timer();
-        self.timers.insert(token, (h, delay));
+        self.timers.insert(token, (h, delay, None));
         self.timer_to_reg.push(token);
         trace!("looper register timer {:?}", token);
         token
+    }
+
+    pub fn deregister_timer(&mut self, token : TimerToken) {
+        debug_assert!(self.timers.contains_key(&token));
+        match self.timer_to_del.binary_search(&token) {
+            Ok(_) => {
+                trace!("looper deregister timer already {:?}", token);
+            }
+            Err(idx) => {
+                trace!("looper deregister timer pending {:?}", token);
+                self.timer_to_del.insert(idx, token);
+            }
+        }
     }
 }
 
@@ -236,14 +251,38 @@ impl LoopHandler {
         let mut timer_to_reg = Vec::new();
         swap(&mut timer_to_reg, &mut looper.timer_to_reg);
         for token in timer_to_reg {
-            match looper.timers.get(&token) {
+            match looper.timers.get_mut(&token) {
                 None => {
                     trace!("loop_register_timer none? {:?}", token);
                     continue;
                 }
-                Some(&(_, delay)) => {
-                    el.timeout_ms(token, delay).unwrap();
+                Some(ref mut tmr) => {
+                    let delay = tmr.1;
+                    let to = el.timeout_ms(token, delay).unwrap();
                     trace!("event_loop register timer {:?} {}", token, delay);
+                    tmr.2 = Some(to);
+                }
+            }
+        }
+    }
+    fn loop_deregister_timer(&mut self, el : &mut EventLoop<Self>, lp : &RefCell<Option<Looper>>) {
+        let mut borrow = lp.borrow_mut();
+        let mut looper = borrow.as_mut().unwrap();
+        if looper.timer_to_del.is_empty() {
+            return;
+        }
+        let mut timer_to_del = Vec::new();
+        swap(&mut timer_to_del, &mut looper.timer_to_del);
+        for token in timer_to_del {
+            match looper.timers.remove(&token) {
+                None => {
+                    trace!("loop_degister_timer none? {:?}", token);
+                    continue;
+                }
+                Some((h, delay, opt)) => {
+                    let to = opt.unwrap();
+                    el.clear_timeout(to);
+                    trace!("event_loop degister timer {:?}", token);
                 }
             }
         }
@@ -275,7 +314,7 @@ impl Handler for LoopHandler {
             None => {
                 trace!("handler on_timer none? {:?}", token);
             }
-            Some((h, _)) => {
+            Some((h, _, _)) => {
                 trace!("handler on_timer {:?}", token);
                 h.borrow_mut().on_timer(token);
                 trace!("handler on_ready done {:?}", token);
@@ -286,9 +325,10 @@ impl Handler for LoopHandler {
         trace!("handler tick");
         LOOPER.with(|looper| {
             while looper.borrow().as_ref().unwrap().has_pending() {
-                self.loop_reregister(el, &looper);
                 self.loop_register(el, &looper);
+                self.loop_reregister(el, &looper);
                 self.loop_register_timer(el, &looper);
+                self.loop_deregister_timer(el, &looper);
             }
             if looper.borrow().as_ref().unwrap().is_empty() {
                 trace!("handler shutdown");

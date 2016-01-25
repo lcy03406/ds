@@ -34,8 +34,8 @@ impl Drop for Stat {
     fn drop(&mut self) {
         assert_eq!(self.conn, 2);
         assert_eq!(self.disc, 2);
-        assert_eq!(self.send, 1);
-        assert_eq!(self.recv, 1);
+        assert_eq!(self.send, 10);
+        assert_eq!(self.recv, 10);
     }
 }
 
@@ -62,7 +62,7 @@ impl ServiceHandler for TestService {
     fn connected(&self, token : Token) {
         self.stat.borrow_mut().conn += 1;
         if self.stat.borrow().send == 0 {
-            service_write!(TEST_SERVICE, token, &Packet{x:1,y:2});
+            service_write!(TEST_SERVICE, token, &Packet{x:1,y:1});
         }
     }
     fn disconnected(&self, token : Token) {
@@ -71,8 +71,12 @@ impl ServiceHandler for TestService {
     }
     fn incoming(&self, token : Token, packet : Self::Packet) {
         self.stat.borrow_mut().recv += 1;
-        assert!(packet.x == 1 && packet.y == 2);
-        service_shutdown!(TEST_SERVICE, token);
+        assert!(packet.x == 1);
+        if packet.y < 10 {
+            service_write!(TEST_SERVICE, token, &Packet{x:1,y:packet.y+1});
+        } else {
+            service_shutdown!(TEST_SERVICE, token);
+        }
     }
     fn outgoing(&self, token : Token, packet : &Self::Packet) {
         self.stat.borrow_mut().send += 1;

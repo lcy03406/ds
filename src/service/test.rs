@@ -10,7 +10,7 @@ service_define!(TEST_SERVICE : TestService);
 impl ServiceStreamer for TestService {
     type Packet = u8;
     type Error =();
-    fn write_packet(packet : &u8, writer : &mut BufWrite) ->Result<(), Self::Error> {
+    fn write_packet(packet : &u8, writer : &mut Write) ->Result<(), Self::Error> {
         writer.write(&vec![*packet][..]).unwrap();
         Ok(())
     }

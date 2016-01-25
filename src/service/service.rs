@@ -11,12 +11,11 @@ use mio::tcp::TcpStream;
 use super::looper::{LOOPER, EventHandler, Eventer, TimerToken, TimeHandler};
 use super::stream::Stream;
 use super::listen::Listen;
-use super::bufwrite::BufWrite;
 
 pub trait ServiceStreamer {
     type Packet;
     type Error : Debug;
-    fn write_packet(packet : &Self::Packet, writer : &mut BufWrite) ->Result<(), Self::Error>;
+    fn write_packet(packet : &Self::Packet, writer : &mut Write) ->Result<(), Self::Error>;
     fn read_packet(reader : &mut BufRead) -> Result<Option<Self::Packet>, Self::Error>;
 }
 
@@ -100,6 +99,12 @@ impl<H: ServiceHandler + 'static > ServiceRef<H> {
             listen.borrow_mut().shutdown();
         }
         //service.listens.clear();
+        for connect in service.connecting.keys() {
+            LOOPER.with(|looper| {
+                looper.borrow_mut().as_mut().unwrap().deregister_timer(*connect)
+            });
+        }
+        service.connecting.clear();
     }
     pub fn write(&self, token : Token, packet : &H::Packet) {
         let stream = match self.service.borrow_mut().streams.get_mut(&token) {
@@ -133,6 +138,7 @@ impl<H: ServiceHandler + 'static > ServiceRef<H> {
             }
             Some(s) => {
                 trace!("service shutdown {:?}", token);
+                s.borrow_mut().reconnect = false;
                 s.borrow_mut().shutdown();
             }
         };
