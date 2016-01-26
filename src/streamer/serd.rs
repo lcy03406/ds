@@ -1,61 +1,77 @@
+use std::marker::PhantomData;
 use std::fmt::Debug;
 use std::io;
 use std::io::{Write, BufRead};
-use serde::{Serialize, Deserialize, Error};
 
-use ::service::ServiceStreamer;
+use service::ServiceStreamer;
 
-pub trait Streamer {
-    type Packet : Serialize + Deserialize;
-    type Error : Error + Debug;
-    fn write_len(len : usize, writer : &mut Write) -> Result<(), Self::Error>;
-    fn read_len(reader : &[u8]) -> Result<Option<(usize, usize)>, Self::Error>;
-    fn write_to_vec(packet : &Self::Packet) -> Result<Vec<u8>, Self::Error>;
-    fn read_from_slice(reader : &[u8]) -> Result<Self::Packet, Self::Error>;
-    fn error_from_io(e : io::Error) -> Self::Error; // where Self:Sized;
+pub trait HeadStreamer {
+    type Error : Debug;
+    fn write_len(len: usize, writer: &mut Write) -> Result<(), Self::Error>;
+    fn read_len(reader: &[u8]) -> Result<Option<(usize, usize)>, Self::Error>;
 }
 
-impl<P, E, T> ServiceStreamer for T
-    where P : Serialize + Deserialize,
-          E : Error + Debug,
-          T : Streamer<Packet=P,Error=E> + Sized
+pub trait BodyStreamer {
+    type Packet;
+    type Error : Debug;
+    fn write_to_vec(packet: &Self::Packet) -> Result<Vec<u8>, Self::Error>;
+    fn read_from_slice(reader: &[u8]) -> Result<Self::Packet, Self::Error>;
+}
+
+pub trait ErrorMapper {
+    type HE;
+    type BE;
+    type Error : Debug;
+    fn error_from_head(e: Self::HE) -> Self::Error;
+    fn error_from_body(e: Self::BE) -> Self::Error;
+    fn error_from_io(e: io::Error) -> Self::Error;
+}
+
+pub trait StreamerImpl {
+    type Head : HeadStreamer;
+    type Body : BodyStreamer;
+    type Error : ErrorMapper;
+}
+//<HE=<Self as StreamerImpl>::Head::Error, BE=<Self as StreamerImpl>::Body::Error>;
+
+impl<T,H,B,E> ServiceStreamer for T
+    where T: StreamerImpl<Head=H, Body=B, Error=E>,
+          H: HeadStreamer,
+          B: BodyStreamer,
+          E: ErrorMapper<HE=H::Error, BE=B::Error>
 {
-    type Packet = P;
-    type Error = E;
-    fn write_packet(packet : &Self::Packet, writer : &mut Write) ->Result<(), Self::Error>
-    {
-        match Self::write_to_vec(packet) {
+    type Packet = B::Packet;
+    type Error = E::Error;
+    fn write_packet(packet: &Self::Packet, writer: &mut Write) -> Result<(), Self::Error> {
+        match B::write_to_vec(packet) {
             Ok(v) => {
-                try!(Self::write_len(v.len(), writer as &mut Write));
-                try!(writer.write(&v).map_err(Self::error_from_io));
+                try!(H::write_len(v.len(), writer as &mut Write).map_err(E::error_from_head));
+                try!(writer.write(&v).map_err(E::error_from_io));
                 Ok(())
             }
-            Err(e) => {
-                Err(e)
-            }
+            Err(e) => Err(E::error_from_body(e)),
         }
     }
-    fn read_packet(reader : &mut BufRead) -> Result<Option<Self::Packet>, Self::Error>
-    {
-        let len : usize;
-        let p : Self::Packet;
+    fn read_packet(reader: &mut BufRead) -> Result<Option<Self::Packet>, Self::Error> {
+        let len: usize;
+        let p: Self::Packet;
         match reader.fill_buf() {
             Ok(buf) => {
                 let len1 = buf.len();
-                match Self::read_len(buf) {
+                match H::read_len(buf) {
                     Ok(Some((header_len, packet_len))) => {
                         let len2 = buf.len();
                         len = header_len + packet_len;
                         if buf.len() < len {
                             return Ok(None);
                         }
-                        p = try!(Self::read_from_slice(&buf[header_len..len]));
+                        p = try!(B::read_from_slice(&buf[header_len..len]).map_err(E::error_from_body));
                     }
                     Ok(None) => {
                         return Ok(None);
                     }
                     Err(e) => {
-                        return Err(e);
+                        return Err(E::error_from_head(e));
                     }
                 }
             }
@@ -63,11 +79,31 @@ impl<P, E, T> ServiceStreamer for T
                 if e.kind() == io::ErrorKind::WouldBlock {
                     return Ok(None);
                 } else {
-                    return Err(Self::error_from_io(e));
+                    return Err(E::error_from_io(e));
                 }
             }
         }
         reader.consume(len);
         Ok(Some(p))
     }
+}
+
+pub struct Streamer<H,B,E>
+    where H: HeadStreamer,
+          B: BodyStreamer,
+          E: ErrorMapper<HE=H::Error, BE=B::Error>
+{
+    h : PhantomData<*const H>,
+    b : PhantomData<*const B>,
+    e : PhantomData<*const E>,
+}
+
+impl<H, B, E> StreamerImpl for Streamer<H,B,E>
+    where H: HeadStreamer,
+          B: BodyStreamer,
+          E: ErrorMapper<HE=H::Error, BE=B::Error>
+{
+    type Head = H;
+    type Body = B;
+    type Error = E;
 }
