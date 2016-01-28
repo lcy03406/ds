@@ -34,6 +34,11 @@ enum Enum {
     Three(i32),
     Four(Struct),
 }
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+enum MoreEnum {
+    Five = 5,
+    Six = 6,
+}
 
 #[test]
 fn test1() {
@@ -86,5 +91,12 @@ fn test7() {
     test_serde(
         b"binary",
         &vec![6, b'b', b'i', b'n', b'a', b'r', b'y']
+    );
+}
+#[test] //serde does not respect the value of the enum, only the index
+fn test8() {
+    test_serde(
+        &MoreEnum::Five,
+        &vec![0]
     );
 }

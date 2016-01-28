@@ -1,12 +1,10 @@
 use std::marker::PhantomData;
 use std::io;
 use std::io::{Read, Write};
-use byteorder;
-use byteorder::{WriteBytesExt, ReadBytesExt, BigEndian};
 use serde::{Serialize, Deserialize};
-use serde_json::{to_writer, to_vec, from_slice, Serializer, Deserializer, Error, ErrorCode};
+use serde_json::{to_writer, to_vec, from_slice, Deserializer, Error};
 
-use ::super::serd::{HeadStreamer, BodyStreamer, ErrorMapper, StreamerImpl};
+use ::super::headbody::{HeadStreamer, BodyStreamer, ErrorMapper, StreamerImpl};
 
 pub struct JsonHeadStreamer;
 

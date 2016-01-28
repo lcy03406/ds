@@ -279,7 +279,7 @@ impl LoopHandler {
                     trace!("loop_degister_timer none? {:?}", token);
                     continue;
                 }
-                Some((h, delay, opt)) => {
+                Some((_h, _delay, opt)) => {
                     let to = opt.unwrap();
                     el.clear_timeout(to);
                     trace!("event_loop degister timer {:?}", token);

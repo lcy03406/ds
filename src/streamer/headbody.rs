@@ -1,4 +1,3 @@
-use std::marker::PhantomData;
 use std::fmt::Debug;
 use std::io;
 use std::io::{Write, BufRead};
@@ -57,10 +56,8 @@ impl<T,H,B,E> ServiceStreamer for T
         let p: Self::Packet;
         match reader.fill_buf() {
             Ok(buf) => {
-                let len1 = buf.len();
                 match H::read_len(buf) {
                     Ok(Some((header_len, packet_len))) => {
-                        let len2 = buf.len();
                         len = header_len + packet_len;
                         if buf.len() < len {
                             return Ok(None);
@@ -88,6 +85,7 @@ impl<T,H,B,E> ServiceStreamer for T
     }
 }
 
+/*
 pub struct Streamer<H,B,E>
     where H: HeadStreamer,
           B: BodyStreamer,
@@ -107,3 +105,4 @@ impl<H, B, E> StreamerImpl for Streamer<H,B,E>
     type Body = B;
     type Error = E;
 }
+*/

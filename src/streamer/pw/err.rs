@@ -30,7 +30,7 @@ impl From<byteorder::Error> for Error {
 impl serde::Error for Error {
     //TODO
     /// Raised when there is general error when deserializing a type.
-    fn syntax(msg: &str) -> Self {
+    fn syntax(_msg: &str) -> Self {
         Error::SerdeError
     }
 
@@ -40,12 +40,12 @@ impl serde::Error for Error {
     }
 
     /// Raised when a `Deserialize` struct type received an unexpected struct field.
-    fn unknown_field(field: &str) -> Self {
+    fn unknown_field(_field: &str) -> Self {
         Error::SerdeError
     }
 
     /// Raised when a `Deserialize` struct type did not receive a field.
-    fn missing_field(field: &'static str) -> Self {
+    fn missing_field(_field: &'static str) -> Self {
         Error::SerdeError
     }
 }

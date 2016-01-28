@@ -130,9 +130,9 @@ impl<W> serde::Serializer for Serializer<W> where W : io::Write {
     #[inline]
     fn visit_unit_variant(&mut self,
                           _name: &'static str,
-                          _variant_index: usize,
+                          variant_index: usize,
                           _variant: &'static str) -> Result<(), Self::Error> {
-        self.visit_unit()
+        self.compact_u32(variant_index as u32)
     }
 
     /// Serializes Option<T> as Vec<T> of length 0 or 1.

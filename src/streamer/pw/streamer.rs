@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 use std::io;
 use serde::{Serialize, Deserialize};
 
-use ::super::super::serd::{HeadStreamer, BodyStreamer, ErrorMapper, StreamerImpl};
+use ::super::super::headbody::{HeadStreamer, BodyStreamer, ErrorMapper, StreamerImpl};
 use ::super::ser::Serializer;
 use ::super::de::Deserializer;
 use ::super::err::Error;
@@ -25,7 +25,7 @@ impl HeadStreamer for PwHeadStreamer {
             Err(Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
                 Ok(None)
             }
-            Err(e) => {
+            Err(_) => {
                 assert!(false);
                 Ok(None)
             }
