@@ -25,7 +25,7 @@ impl ServiceStreamer for MemcachedStreamer {
         try!(writer.write_u32::<BigEndian>(packet.header.opaque));
         try!(writer.write_u64::<BigEndian>(packet.header.cas));
         try!(writer.write_all(&packet.extras[..]));
-        try!(writer.write_all(&packet.key[..]));
+        try!(writer.write_all(&packet.key.as_bytes()));
         try!(writer.write_all(&packet.value[..]));
         Ok(())
     }
@@ -36,11 +36,13 @@ impl ServiceStreamer for MemcachedStreamer {
             Ok(buf) => {
                 let buflen = buf.len();
                 if buflen < HEADER_SIZE {
+                    trace!("buflen {}", buflen);
                     return Ok(None);
                 }
                 let bodylen = BigEndian::read_u32(&buf[8..12]);
                 let totallen = HEADER_SIZE + bodylen as usize;
                 if buflen < totallen {
+                    trace!("buflen {} totallen {}", buflen, totallen);
                     return Ok(None);
                 }
                 let magic = buf[0];
@@ -56,15 +58,15 @@ impl ServiceStreamer for MemcachedStreamer {
                 let keyend = extend + keylen as usize;
                 let valueend = 24 + bodylen as usize;
                 if keyend > valueend {
+                    trace!("keyend {} valueend {}", keyend, valueend);
                     return Err(Error::WrongLen);
                 }
                 let mut ext = Vec::new();
                 try!((&buf[24..extend]).read_to_end(&mut ext));
-                let mut key = Vec::new();
-                try!((&buf[extend..keyend]).read_to_end(&mut key));
+                let key = String::from_utf8_lossy(&buf[extend..keyend]).to_string();
                 let mut value = Vec::new();
                 try!((&buf[keyend..valueend]).read_to_end(&mut value));
-                len = bodylen as usize;
+                len = totallen;
                 p = Packet {
                     header : Header {
                         magic : Magic(magic),
@@ -84,6 +86,7 @@ impl ServiceStreamer for MemcachedStreamer {
             }
             Err(e) => {
                 if e.kind() == io::ErrorKind::WouldBlock {
+                    trace!("wouldblock");
                     return Ok(None);
                 } else {
                     return Err(From::from(e));

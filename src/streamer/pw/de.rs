@@ -8,6 +8,7 @@ use super::err::Error;
 pub struct Deserializer<R : Read> {
     reader : R,
     expect_tag : bool,
+    tag_offset : usize,
 }
 
 impl<R> Deserializer<R> where R : Read {
@@ -15,6 +16,7 @@ impl<R> Deserializer<R> where R : Read {
         Deserializer {
             reader : r,
             expect_tag : false,
+            tag_offset : 0,
         }
     }
 
@@ -53,7 +55,7 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
     {
         if self.expect_tag {
             let len = try!(self.uncompact_u32()) as usize;
-            visitor.visit_usize(len)
+            visitor.visit_usize(len - self.tag_offset)
         } else {
             unimplemented!();
         }
@@ -309,13 +311,19 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
     /// type.
     #[inline]
     fn visit_enum<V>(&mut self,
-                     _enum: &'static str,
+                     enum_name: &'static str,
                      _variants: &'static [&'static str],
                      mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::EnumVisitor,
     {
+        const PROTOCOL_TAG : &'static str = "ProtocolFrom";
+        if enum_name.starts_with(PROTOCOL_TAG) {
+            self.tag_offset = enum_name[PROTOCOL_TAG.len()..].parse().unwrap();
+        } else {
+            self.tag_offset = 0;
+        }
+        self.expect_tag = true;
         visitor.visit(self)
-        //TODO VariantVisitor
     }
 
     /// This method hints that the `Deserialize` type is expecting a `Vec<u8>`. This allows
@@ -508,7 +516,7 @@ impl<R> de::VariantVisitor for Deserializer<R> where R : Read {
     fn visit_variant<V>(&mut self) -> Result<V, Self::Error>
         where V: Deserialize
     {
-        self.expect_tag = true;
+        assert!(self.expect_tag == true);
         let val = try!(de::Deserialize::deserialize(self));
         self.expect_tag = false;
         Ok(val)

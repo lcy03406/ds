@@ -1,5 +1,6 @@
 use std::rc::{Rc};
 use std::cell::{RefCell};
+use std::ops::Deref;
 use std::str::FromStr;
 use std::collections::HashMap;
 use std::io::{Write, BufRead};
@@ -32,6 +33,27 @@ pub struct ServiceConfig {
     pub name : String,
     pub listen : Vec<String>,
     pub connect : Vec<String>,
+}
+
+impl ServiceConfig {
+    pub fn server<A,B>(name : A, addr : B) -> Self
+        where A : Deref<Target=str>, B : Deref<Target=str>
+    {
+        ServiceConfig {
+            name : name.to_string(),
+            listen : vec![addr.to_string()],
+            connect : vec![],
+        }
+    }
+    pub fn client<A,B>(name : A, addr : B) -> Self
+        where A : Deref<Target=str>, B : Deref<Target=str>
+    {
+        ServiceConfig {
+            name : name.to_string(),
+            listen : vec![],
+            connect : vec![addr.to_string()],
+        }
+    }
 }
 
 pub struct ServiceBody {
@@ -127,6 +149,24 @@ impl<H: ServiceHandler + 'static > ServiceRef<H> {
             }
             Err(e) => {
                 trace!("service write err {:?} {:?}", token, e);
+            }
+        }
+    }
+    pub fn broadcast(&self, packet : &H::Packet) {
+        let streams = self.service.borrow_mut().streams.clone();
+        for (token, stream) in streams {
+            trace!("service handler outgoing begin {:?}", token);
+            self.handler.borrow().outgoing(token, packet);
+            trace!("service handler outgoing end {:?}", token);
+            let r = H::Streamer::write_packet(packet, &mut *stream.borrow_mut());
+            match r {
+                Ok(_) => {
+                    trace!("service write ok {:?}", token);
+                    stream.borrow_mut().flush().ok();
+                }
+                Err(e) => {
+                    trace!("service write err {:?} {:?}", token, e);
+                }
             }
         }
     }
@@ -382,6 +422,12 @@ macro_rules! service_exit {
 macro_rules! service_write {
     ($n:ident , $t:expr, $p:expr) => {
         $n.with(|s| s.borrow_mut().as_mut().unwrap().write($t, $p))
+    }
+}
+#[macro_export]
+macro_rules! service_broadcast {
+    ($n:ident , $p:expr) => {
+        $n.with(|s| s.borrow_mut().as_mut().unwrap().broadcast($p))
     }
 }
 #[macro_export]

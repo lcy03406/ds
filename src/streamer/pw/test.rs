@@ -39,6 +39,12 @@ enum MoreEnum {
     Five = 5,
     Six = 6,
 }
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+enum ProtocolFrom8000 {
+    Seven(i32),
+    Eight{i : i32},
+    Nine(Struct),
+}
 
 #[test]
 fn test1() {
@@ -100,3 +106,25 @@ fn test8() {
         &vec![0]
     );
 }
+#[test]
+fn test9() {
+    test_serde(
+        &ProtocolFrom8000::Seven(880),
+        &vec![159, 64, 0, 0, 3, 112]
+    );
+}
+#[test]
+fn test10() {
+    test_serde(
+        &ProtocolFrom8000::Eight{i:880},
+        &vec![159, 65, 0, 0, 3, 112]
+    );
+}
+#[test]
+fn test11() {
+    test_serde(
+        &ProtocolFrom8000::Nine(Struct{a:880,b:String::new()}),
+        &vec![159, 66, 0, 0, 3, 112, 0]
+    );
+}
+

@@ -30,6 +30,18 @@ impl<W> Serializer<W> where W : io::Write {
             self.writer.write_u32::<BigEndian>(value).map_err(From::from)
         }
     }
+
+    #[inline]
+    fn visit_tag(&mut self, name : &'static str, value: usize) -> Result<(), Error> {
+        const PROTOCOL_TAG : &'static str = "ProtocolFrom";
+        let tag = if name.starts_with(PROTOCOL_TAG) {
+            name[PROTOCOL_TAG.len()..].parse().unwrap()
+        } else {
+            0
+        };
+        self.compact_u32((tag+value) as u32)
+    }
+
 }
 
 impl<W> serde::Serializer for Serializer<W> where W : io::Write {
@@ -129,10 +141,10 @@ impl<W> serde::Serializer for Serializer<W> where W : io::Write {
 
     #[inline]
     fn visit_unit_variant(&mut self,
-                          _name: &'static str,
+                          name: &'static str,
                           variant_index: usize,
                           _variant: &'static str) -> Result<(), Self::Error> {
-        self.compact_u32(variant_index as u32)
+        self.visit_tag(name, variant_index)
     }
 
     /// Serializes Option<T> as Vec<T> of length 0 or 1.
@@ -207,13 +219,13 @@ impl<W> serde::Serializer for Serializer<W> where W : io::Write {
 
     #[inline]
     fn visit_tuple_variant<V>(&mut self,
-                              _name: &'static str,
+                              name: &'static str,
                               variant_index: usize,
                               variant: &'static str,
                               visitor: V) -> Result<(), Self::Error>
         where V: ser::SeqVisitor,
     {
-        try!(self.compact_u32(variant_index as u32));
+        try!(self.visit_tag(name, variant_index));
         self.visit_tuple_struct(variant, visitor)
     }
 
@@ -266,13 +278,13 @@ impl<W> serde::Serializer for Serializer<W> where W : io::Write {
 
     #[inline]
     fn visit_struct_variant<V>(&mut self,
-                               _name: &'static str,
+                               name: &'static str,
                                variant_index: usize,
                                variant: &'static str,
                                visitor: V) -> Result<(), Self::Error>
         where V: ser::MapVisitor,
     {
-        try!(self.compact_u32(variant_index as u32));
+        try!(self.visit_tag(name, variant_index));
         self.visit_struct(variant, visitor)
     }
 

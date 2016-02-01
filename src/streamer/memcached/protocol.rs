@@ -2,6 +2,7 @@
 * Definition of the legal "magic" values used in a packet.
 * See section 3.1 Magic byte
 */
+#[derive(Debug)]
 pub struct Magic(pub u8);
 pub const PROTOCOL_BINARY_REQ : Magic = Magic(0x80);
 pub const PROTOCOL_BINARY_RES : Magic = Magic(0x81);
@@ -10,6 +11,7 @@ pub const PROTOCOL_BINARY_RES : Magic = Magic(0x81);
 * Definition of the valid response status numbers.
 * See section 3.2 Response Status
 */
+#[derive(Debug)]
 pub struct ResponseStatus(pub u16);
 pub const PROTOCOL_BINARY_RESPONSE_SUCCESS : ResponseStatus = ResponseStatus(0x00);
 pub const PROTOCOL_BINARY_RESPONSE_KEY_ENOENT : ResponseStatus = ResponseStatus(0x01);
@@ -32,6 +34,7 @@ pub const PROTOCOL_BINARY_RESPONSE_ETMPFAIL : ResponseStatus = ResponseStatus(0x
 * Defintion of the different command opcodes.
 * See section 3.3 Command Opcodes
 */
+#[derive(Debug)]
 pub struct Opcode(pub u8);
 pub const PROTOCOL_BINARY_CMD_GET : Opcode = Opcode(0x00);
 pub const PROTOCOL_BINARY_CMD_SET : Opcode = Opcode(0x01);
@@ -116,9 +119,11 @@ pub const PROTOCOL_BINARY_CMD_SCRUB : Opcode = Opcode(0xf0);
 * Definition of the data types in the packet
 * See section 3.4 Data Types
 */
+#[derive(Debug)]
 pub struct DataType(pub u8);
 pub const PROTOCOL_BINARY_RAW_BYTES : DataType = DataType(0x00);
 
+#[derive(Debug)]
 pub struct Header {
     pub magic : Magic,
     pub opcode : Opcode,
@@ -131,10 +136,11 @@ pub struct Header {
     pub cas : u64,
 }
 
+#[derive(Debug)]
 pub struct Packet {
     pub header : Header,
     pub extras : Vec<u8>,
-    pub key : Vec<u8>,
+    pub key : String,
     pub value : Vec<u8>,
 }
 
@@ -157,7 +163,7 @@ impl Header {
 pub const HEADER_SIZE : usize = 24;
 
 impl Packet {
-    pub fn new_request_get(opaque : u32, key : Vec<u8>) -> Self {
+    pub fn new_request_get(opaque : u32, key : String) -> Self {
         Packet {
             header : Header::new_request(PROTOCOL_BINARY_CMD_GET, opaque, 0, key.len(), 0),
             extras : Vec::new(),
@@ -165,9 +171,9 @@ impl Packet {
             value : Vec::new(),
         }
     }
-    pub fn new_request_set(opaque : u32, key : Vec<u8>, value : Vec<u8>) -> Self {
+    pub fn new_request_set(opaque : u32, key : String, value : Vec<u8>) -> Self {
         Packet {
-            header : Header::new_request(PROTOCOL_BINARY_CMD_GET, opaque, 8, key.len(), value.len()),
+            header : Header::new_request(PROTOCOL_BINARY_CMD_SET, opaque, 8, key.len(), value.len()),
             extras : vec![0; 8],
             key : key,
             value : value,
