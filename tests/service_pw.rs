@@ -21,6 +21,12 @@ struct Packet {
     zzz : Vec<u8>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+enum ProtocolFrom1 {
+    Proto1(Packet),
+}
+
+
 struct Stat {
     conn : i32,
     disc : i32,
@@ -62,23 +68,24 @@ impl TestService {
 }
 
 impl ServiceHandler for TestService {
-    type Packet = Packet;
-    type Streamer = PwStreamer<Packet>;
+    type Packet = ProtocolFrom1;
+    type Streamer = PwStreamer<Self::Packet>;
     fn connected(&self, token : Token) {
         self.stat.borrow_mut().conn += 1;
         if self.stat.borrow().send == 0 {
-            service_write!(TEST_SERVICE, token, &Packet{x:1,y:1,zzz:vec![0x21;256]});
+            service_write!(TEST_SERVICE, token, &ProtocolFrom1::Proto1(Packet{x:1,y:1,zzz:vec![0x21;256]}));
         }
     }
     fn disconnected(&self, token : Token) {
         self.stat.borrow_mut().disc += 1;
         service_exit!(TEST_SERVICE);
     }
-    fn incoming(&self, token : Token, packet : Self::Packet) {
+    fn incoming(&self, token : Token, packett : Self::Packet) {
         self.stat.borrow_mut().recv += 1;
+        let ProtocolFrom1::Proto1(packet) = packett;
         assert!(packet.x == 1);
         if packet.y < 10 {
-            service_write!(TEST_SERVICE, token, &Packet{x:1,y:packet.y+1,zzz:vec![0x22;256]});
+            service_write!(TEST_SERVICE, token, &ProtocolFrom1::Proto1(Packet{x:1,y:packet.y+1,zzz:vec![0x22;256]}));
         } else {
             service_shutdown!(TEST_SERVICE, token);
         }

@@ -12,24 +12,38 @@ pub struct PwHeadStreamer;
 impl HeadStreamer for PwHeadStreamer {
     type Error = Error;
     fn write_len(len : usize, writer : &mut io::Write) -> Result<(), Self::Error> {
-        Ok(Serializer::new(writer).compact_u32(len as u32).unwrap())
+        Ok(())
     }
     fn read_len(reader : &[u8]) -> Result<Option<(usize, usize)>, Self::Error> {
         let len1 = reader.len();
         let r = &mut &*reader;
-        match Deserializer::new(r).uncompact_u32() {
-            Ok(len) => {
-                let len2 = reader.len();
-                Ok(Some((len1 - len2, len as usize)))
+        let mut de = Deserializer::new(r);
+        let _ty = match de.uncompact_u32() {
+            Ok(t) => {
+                t
             }
             Err(Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
-                Ok(None)
+                return Ok(None)
             }
             Err(_) => {
                 assert!(false);
-                Ok(None)
+                return Ok(None)
             }
-        }
+        };
+        let len = match de.uncompact_u32() {
+            Ok(l) => {
+                l
+            }
+            Err(Error::IoError(ref e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
+                return Ok(None)
+            }
+            Err(_) => {
+                assert!(false);
+                return Ok(None)
+            }
+        };
+        let len2 = reader.len();
+        Ok(Some((0, len1 - len2 + len as usize)))
     }
 }
 

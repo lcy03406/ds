@@ -110,21 +110,21 @@ fn test8() {
 fn test9() {
     test_serde(
         &ProtocolFrom8000::Seven(880),
-        &vec![159, 64, 0, 0, 3, 112]
+        &vec![159, 64, 4, 0, 0, 3, 112]
     );
 }
 #[test]
 fn test10() {
     test_serde(
         &ProtocolFrom8000::Eight{i:880},
-        &vec![159, 65, 0, 0, 3, 112]
+        &vec![159, 65, 4, 0, 0, 3, 112]
     );
 }
 #[test]
 fn test11() {
     test_serde(
         &ProtocolFrom8000::Nine(Struct{a:880,b:String::new()}),
-        &vec![159, 66, 0, 0, 3, 112, 0]
+        &vec![159, 66, 5, 0, 0, 3, 112, 0]
     );
 }
 

@@ -54,8 +54,11 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
         where V: de::Visitor,
     {
         if self.expect_tag {
-            let len = try!(self.uncompact_u32()) as usize;
-            visitor.visit_usize(len - self.tag_offset)
+            let tag = try!(self.uncompact_u32()) as usize;
+            if self.tag_offset > 0 {
+                let _len = try!(self.uncompact_u32()) as usize;
+            }
+            visitor.visit_usize(tag - self.tag_offset)
         } else {
             unimplemented!();
         }

@@ -30,7 +30,7 @@ struct Key {
 
 impl Key {
     fn to_string(&self) -> String {
-        format!("@@cache.{:016X}/{:08X}/{:08X}", self.roleid, self.timestamp, self.passcode)
+        format!("@@cache.{:016X}|{:08X}|{:08X}", self.roleid, self.timestamp, self.passcode)
     }
 }
 
@@ -56,6 +56,7 @@ enum ProtocolFrom7001 {
 struct Ongoing {
     token : Token,
     roleid : u64,
+    key : Key,
 }
 
 struct FrontService {
@@ -82,16 +83,18 @@ impl ServiceHandler for FrontService {
                     None => 0,
                     Some(n) => *n,
                 };
-                self.ongoing.borrow_mut().insert(opaque, Ongoing { token : token, roleid : 0 });
-                service_broadcast!(DB_SERVICE, &memcached::protocol::Packet::new_request_set(opaque, key.to_string(), value));
+                let keystr = key.to_string();
+                self.ongoing.borrow_mut().insert(opaque, Ongoing { token : token, roleid : 0, key : key });
+                service_broadcast!(DB_SERVICE, &memcached::protocol::Packet::new_request_set(opaque, keystr, value));
             }
             ProtocolFrom7001::Get(roleid, key) => {
                 let opaque = match self.ongoing.borrow().keys().next_back() {
                     None => 0,
                     Some(n) => *n,
                 };
-                self.ongoing.borrow_mut().insert(opaque, Ongoing { token : token, roleid : roleid });
-                service_broadcast!(DB_SERVICE, &memcached::protocol::Packet::new_request_get(opaque, key.to_string()));
+                let keystr = key.to_string();
+                self.ongoing.borrow_mut().insert(opaque, Ongoing { token : token, roleid : roleid, key : key });
+                service_broadcast!(DB_SERVICE, &memcached::protocol::Packet::new_request_get(opaque, keystr));
             }
             _ => {
                 service_shutdown!(FRONT_SERVICE, token);
@@ -117,20 +120,22 @@ impl ServiceHandler for DbService {
                     None => return,
                     Some(g) => g
                 };
-                let key = Key::from_str(&packet.key).unwrap();
+                let token = ongoing.token;
+                let key = ongoing.key;
                 let result = packet.header.status.0 as i32;
-                let packet = ProtocolFrom7001::GetRe(ongoing.roleid, key, result, packet.value);
-                service_write!(FRONT_SERVICE, ongoing.token, &packet);
+                let re = ProtocolFrom7001::GetRe(ongoing.roleid, key, result, packet.value);
+                service_write!(FRONT_SERVICE, token, &re);
             }
             memcached::protocol::PROTOCOL_BINARY_CMD_SET => {
                 let ongoing = match self.ongoing.borrow_mut().remove(&packet.header.opaque) {
                     None => return,
                     Some(g) => g
                 };
-                let key = Key::from_str(&packet.key).unwrap();
+                let token = ongoing.token;
+                let key = ongoing.key;
                 let result = packet.header.status.0 as i32;
-                let packet = ProtocolFrom7001::SetRe(key, result);
-                service_write!(FRONT_SERVICE, ongoing.token, &packet);
+                let re = ProtocolFrom7001::SetRe(key, result);
+                service_write!(FRONT_SERVICE, token, &re);
             }
             _ => {
             }

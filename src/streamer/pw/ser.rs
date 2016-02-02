@@ -4,6 +4,8 @@ use serde;
 use serde::ser;
 use serde::Serialize;
 
+use serde::Serializer as SerdeSerializer;
+
 use super::err::Error;
 
 pub struct Serializer<W : io::Write> {
@@ -30,18 +32,16 @@ impl<W> Serializer<W> where W : io::Write {
             self.writer.write_u32::<BigEndian>(value).map_err(From::from)
         }
     }
+}
 
-    #[inline]
-    fn visit_tag(&mut self, name : &'static str, value: usize) -> Result<(), Error> {
-        const PROTOCOL_TAG : &'static str = "ProtocolFrom";
-        let tag = if name.starts_with(PROTOCOL_TAG) {
-            name[PROTOCOL_TAG.len()..].parse().unwrap()
-        } else {
-            0
-        };
-        self.compact_u32((tag+value) as u32)
+#[inline]
+fn parse_tag(name : &'static str) -> usize {
+    const PROTOCOL_TAG : &'static str = "ProtocolFrom";
+    if name.starts_with(PROTOCOL_TAG) {
+        name[PROTOCOL_TAG.len()..].parse().unwrap()
+    } else {
+        0
     }
-
 }
 
 impl<W> serde::Serializer for Serializer<W> where W : io::Write {
@@ -144,7 +144,8 @@ impl<W> serde::Serializer for Serializer<W> where W : io::Write {
                           name: &'static str,
                           variant_index: usize,
                           _variant: &'static str) -> Result<(), Self::Error> {
-        self.visit_tag(name, variant_index)
+        let tag_offset = parse_tag(name);
+        self.compact_u32((tag_offset + variant_index) as u32)
     }
 
     /// Serializes Option<T> as Vec<T> of length 0 or 1.
@@ -225,8 +226,15 @@ impl<W> serde::Serializer for Serializer<W> where W : io::Write {
                               visitor: V) -> Result<(), Self::Error>
         where V: ser::SeqVisitor,
     {
-        try!(self.visit_tag(name, variant_index));
-        self.visit_tuple_struct(variant, visitor)
+        let tag_offset = parse_tag(name);
+        try!(self.compact_u32((tag_offset + variant_index) as u32));
+        if tag_offset > 0 {
+            let mut inner = Serializer::new(Vec::new());
+            try!(inner.visit_tuple_struct(variant, visitor));
+            self.visit_bytes(&*inner.writer)
+        } else {
+            self.visit_tuple_struct(variant, visitor)
+        }
     }
 
     #[inline]
@@ -284,8 +292,15 @@ impl<W> serde::Serializer for Serializer<W> where W : io::Write {
                                visitor: V) -> Result<(), Self::Error>
         where V: ser::MapVisitor,
     {
-        try!(self.visit_tag(name, variant_index));
-        self.visit_struct(variant, visitor)
+        let tag_offset = parse_tag(name);
+        try!(self.compact_u32((tag_offset + variant_index) as u32));
+        if tag_offset > 0 {
+            let mut inner = Serializer::new(Vec::new());
+            try!(inner.visit_struct(variant, visitor));
+            self.visit_bytes(&*inner.writer)
+        } else {
+            self.visit_struct(variant, visitor)
+        }
     }
 
     #[inline]
