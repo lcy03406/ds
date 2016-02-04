@@ -150,8 +150,8 @@ fn main() {
     let ongoing = Rc::new(RefCell::new(BTreeMap::new()));
     let front_service = FrontService { ongoing : ongoing.clone() };
     let db_service = DbService { ongoing : ongoing.clone() };
-    service_start!(FRONT_SERVICE, front_service, ServiceConfig::server("front_service", "0.0.0.0:44944"));
-    service_start!(DB_SERVICE, db_service, ServiceConfig::client("db_service", "0.0.0.0:11211"));
+    service_start!(FRONT_SERVICE, front_service, ServiceConfig::from_file("config.toml", "front_service"));
+    service_start!(DB_SERVICE, db_service, ServiceConfig::from_file("config.toml", "db_service"));
     run_loop();
 }
 

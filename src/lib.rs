@@ -8,6 +8,8 @@ extern crate byteorder;
 extern crate serde;
 extern crate serde_json;
 extern crate env_logger;
+extern crate rustc_serialize;
+extern crate toml;
 
 #[macro_use]
 pub mod service;

@@ -1,6 +1,5 @@
 use std::rc::{Rc};
 use std::cell::{RefCell};
-use std::ops::Deref;
 use std::str::FromStr;
 use std::collections::HashMap;
 use std::io::{Write, BufRead};
@@ -12,6 +11,7 @@ use mio::tcp::TcpStream;
 use super::looper::{LOOPER, EventHandler, Eventer, TimerToken, TimeHandler};
 use super::stream::Stream;
 use super::listen::Listen;
+use super::config::ServiceConfig;
 
 pub trait ServiceStreamer {
     type Packet;
@@ -27,33 +27,6 @@ pub trait ServiceHandler {
     fn disconnected(&self, token : Token);
     fn incoming(&self, token : Token, packet : Self::Packet);
     fn outgoing(&self, token : Token, packet : &Self::Packet);
-}
-
-pub struct ServiceConfig {
-    pub name : String,
-    pub listen : Vec<String>,
-    pub connect : Vec<String>,
-}
-
-impl ServiceConfig {
-    pub fn server<A,B>(name : A, addr : B) -> Self
-        where A : Deref<Target=str>, B : Deref<Target=str>
-    {
-        ServiceConfig {
-            name : name.to_string(),
-            listen : vec![addr.to_string()],
-            connect : vec![],
-        }
-    }
-    pub fn client<A,B>(name : A, addr : B) -> Self
-        where A : Deref<Target=str>, B : Deref<Target=str>
-    {
-        ServiceConfig {
-            name : name.to_string(),
-            listen : vec![],
-            connect : vec![addr.to_string()],
-        }
-    }
 }
 
 pub struct ServiceBody {

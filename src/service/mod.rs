@@ -3,14 +3,15 @@ mod buffer;
 mod looper;
 mod stream;
 mod listen;
+mod config;
 #[macro_use]
 mod service;
 
 #[cfg(test)]
 mod test;
 
+pub use self::config::ServiceConfig;
 pub use self::service::ServiceRef;
-pub use self::service::ServiceConfig;
 pub use self::service::ServiceStreamer;
 pub use self::service::ServiceHandler;
 pub use self::bufwrite::BufWrite;

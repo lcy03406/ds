@@ -12,5 +12,7 @@ serde = "0.6.10"
 serde_macros = "0.6.10"
 serde_json = "0.6.0"
 protobuf = "1.0.15"
+rustc-serialize = "0.3.16"
+toml = "0.1.27"
 
 [dev-dependencies]
