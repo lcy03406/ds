@@ -4,15 +4,15 @@ version = "0.1.0"
 authors = ["lichengyu <lichengyu1985@163.com>"]
 
 [dependencies]
-mio = "0.5.0"
-log = "0.3.4"
-env_logger = "0.3.2"
-byteorder = "0.4.2"
-serde = "0.6.10"
-serde_macros = "0.6.10"
-serde_json = "0.6.0"
-protobuf = "1.0.15"
-rustc-serialize = "0.3.16"
-toml = "0.1.27"
+mio = "*"
+log = "*"
+env_logger = "*"
+byteorder = "*"
+serde = "*"
+serde_macros = "*"
+serde_json = "*"
+protobuf = "*"
+rustc-serialize = "*"
+toml = "*"
 
 [dev-dependencies]

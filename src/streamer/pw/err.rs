@@ -1,5 +1,6 @@
 use std::io;
-use byteorder;
+use std::error;
+use std::fmt;
 use serde;
 
 #[derive(Debug)]
@@ -8,44 +9,41 @@ pub enum Error {
     SerdeError,
 }
 
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ErroR")
+    }
+}
+
+impl error::Error for Error {
+    fn description(&self) -> &str {
+        "ErroR"
+    }
+}
+
 impl From<io::Error> for Error {
     fn from(e : io::Error) -> Self {
         Error::IoError(e)
     }
 }
 
-impl From<byteorder::Error> for Error {
-    fn from(e : byteorder::Error) -> Self {
-        match e {
-            byteorder::Error::Io(e) => {
-                Error::IoError(e)
-            }
-            byteorder::Error::UnexpectedEOF => {
-                Error::IoError(io::Error::new(io::ErrorKind::UnexpectedEof, "UnexpectedEOF from byteorder"))
-            }
-        }
-    }
-}
-
-impl serde::Error for Error {
+impl serde::de::Error for Error {
     //TODO
     /// Raised when there is general error when deserializing a type.
-    fn syntax(_msg: &str) -> Self {
+    fn custom<T: Into<String>>(msg: T) -> Self {
         Error::SerdeError
     }
-
+    //TODO
     /// Raised when a `Deserialize` type unexpectedly hit the end of the stream.
     fn end_of_stream() -> Self {
         Error::SerdeError
     }
+}
 
-    /// Raised when a `Deserialize` struct type received an unexpected struct field.
-    fn unknown_field(_field: &str) -> Self {
-        Error::SerdeError
-    }
-
-    /// Raised when a `Deserialize` struct type did not receive a field.
-    fn missing_field(_field: &'static str) -> Self {
+impl serde::ser::Error for Error {
+    //TODO
+    /// Raised when there is general error when deserializing a type.
+    fn custom<T: Into<String>>(msg: T) -> Self {
         Error::SerdeError
     }
 }

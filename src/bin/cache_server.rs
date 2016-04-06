@@ -84,6 +84,7 @@ impl ServiceHandler for FrontService {
                     Some(n) => *n,
                 };
                 let keystr = key.to_string();
+            	trace!("receive request set {:?}", key);
                 self.ongoing.borrow_mut().insert(opaque, Ongoing { token : token, roleid : 0, key : key });
                 service_broadcast!(DB_SERVICE, &memcached::protocol::Packet::new_request_set(opaque, keystr, value));
             }
@@ -93,6 +94,7 @@ impl ServiceHandler for FrontService {
                     Some(n) => *n,
                 };
                 let keystr = key.to_string();
+            	trace!("receive request get {:?}", key);
                 self.ongoing.borrow_mut().insert(opaque, Ongoing { token : token, roleid : roleid, key : key });
                 service_broadcast!(DB_SERVICE, &memcached::protocol::Packet::new_request_get(opaque, keystr));
             }
@@ -123,6 +125,7 @@ impl ServiceHandler for DbService {
                 let token = ongoing.token;
                 let key = ongoing.key;
                 let result = packet.header.status.0 as i32;
+            	trace!("receive response get {:?} result {:?}", key, result);
                 let re = ProtocolFrom7001::GetRe(ongoing.roleid, key, result, packet.value);
                 service_write!(FRONT_SERVICE, token, &re);
             }
@@ -134,6 +137,7 @@ impl ServiceHandler for DbService {
                 let token = ongoing.token;
                 let key = ongoing.key;
                 let result = packet.header.status.0 as i32;
+            	trace!("receive response set {:?} result {:?}", key, result);
                 let re = ProtocolFrom7001::SetRe(key, result);
                 service_write!(FRONT_SERVICE, token, &re);
             }

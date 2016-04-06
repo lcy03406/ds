@@ -50,7 +50,7 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
 
 
     /// This method walks a visitor through a value as it is being deserialized.
-    fn visit<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         if self.expect_tag {
@@ -66,7 +66,7 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
 
     /// This method hints that the `Deserialize` type is expecting a `bool` value.
     #[inline]
-    fn visit_bool<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_bool<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         let value = try!(self.reader.read_u8());
@@ -75,7 +75,7 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
 
     /// This method hints that the `Deserialize` type is expecting an `usize` value.
     #[inline]
-    fn visit_usize<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_usize<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         let value = try!(self.reader.read_u32::<BigEndian>());
@@ -84,7 +84,7 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
 
     /// This method hints that the `Deserialize` type is expecting an `u8` value.
     #[inline]
-    fn visit_u8<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_u8<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         let value = try!(self.reader.read_u8());
@@ -93,7 +93,7 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
 
     /// This method hints that the `Deserialize` type is expecting an `u16` value.
     #[inline]
-    fn visit_u16<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_u16<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         let value = try!(self.reader.read_u16::<BigEndian>());
@@ -102,7 +102,7 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
 
     /// This method hints that the `Deserialize` type is expecting an `u32` value.
     #[inline]
-    fn visit_u32<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_u32<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         let value = try!(self.reader.read_u32::<BigEndian>());
@@ -111,7 +111,7 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
 
     /// This method hints that the `Deserialize` type is expecting an `u64` value.
     #[inline]
-    fn visit_u64<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_u64<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         let value = try!(self.reader.read_u64::<BigEndian>());
@@ -120,7 +120,7 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
 
     /// This method hints that the `Deserialize` type is expecting an `isize` value.
     #[inline]
-    fn visit_isize<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_isize<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         let value = try!(self.reader.read_i32::<BigEndian>());
@@ -129,7 +129,7 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
 
     /// This method hints that the `Deserialize` type is expecting an `i8` value.
     #[inline]
-    fn visit_i8<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_i8<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         let value = try!(self.reader.read_i8());
@@ -138,7 +138,7 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
 
     /// This method hints that the `Deserialize` type is expecting an `i16` value.
     #[inline]
-    fn visit_i16<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_i16<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         let value = try!(self.reader.read_i16::<BigEndian>());
@@ -147,7 +147,7 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
 
     /// This method hints that the `Deserialize` type is expecting an `i32` value.
     #[inline]
-    fn visit_i32<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_i32<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         let value = try!(self.reader.read_i32::<BigEndian>());
@@ -156,7 +156,7 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
 
     /// This method hints that the `Deserialize` type is expecting an `i64` value.
     #[inline]
-    fn visit_i64<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_i64<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         let value = try!(self.reader.read_i64::<BigEndian>());
@@ -165,7 +165,7 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
 
     /// This method hints that the `Deserialize` type is expecting a `f32` value.
     #[inline]
-    fn visit_f32<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_f32<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         let value = try!(self.reader.read_f32::<BigEndian>());
@@ -174,7 +174,7 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
 
     /// This method hints that the `Deserialize` type is expecting a `f64` value.
     #[inline]
-    fn visit_f64<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_f64<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         let value = try!(self.reader.read_f64::<BigEndian>());
@@ -183,7 +183,7 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
 
     /// This method hints that the `Deserialize` type is expecting a `char` value.
     #[inline]
-    fn visit_char<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_char<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         let value = try!(self.reader.read_u8());
@@ -192,15 +192,15 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
 
     /// This method hints that the `Deserialize` type is expecting a `&str` value.
     #[inline]
-    fn visit_str<V>(&mut self, _visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_str<V>(&mut self, _visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
-        Err(<Error as de::Error>::syntax("unimplemented"))
+        Err(<Error as de::Error>::custom("unimplemented"))
     }
 
     /// This method hints that the `Deserialize` type is expecting a `String` value.
     #[inline]
-    fn visit_string<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_string<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         let len = try!(self.uncompact_u32()) as usize;
@@ -211,7 +211,7 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
 
     /// This method hints that the `Deserialize` type is expecting an `unit` value.
     #[inline]
-    fn visit_unit<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_unit<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         visitor.visit_unit()
@@ -221,7 +221,7 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
     /// deserializers that encode an optional value as a nullable value to convert the null value
     /// into a `None`, and a regular value as `Some(value)`.
     #[inline]
-    fn visit_option<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_option<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         let len = try!(self.uncompact_u32());
@@ -230,24 +230,37 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
         } else if len == 1 {
             visitor.visit_some(self)
         } else {
-            Err(<Error as de::Error>::syntax("unimplemented"))
+            Err(<Error as de::Error>::custom("unimplemented"))
         }
     }
 
     /// This method hints that the `Deserialize` type is expecting a sequence value. This allows
     /// deserializers to parse sequences that aren't tagged as sequences.
     #[inline]
-    fn visit_seq<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_seq<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         let len = try!(self.uncompact_u32());
         visitor.visit_seq(SeqVisitor::with_len(self, len as usize))
     }
 
+    /// This method hints that the `Deserialize` type is expecting a fixed size array. This allows
+    /// deserializers to parse arrays that aren't tagged as arrays.
+    ///
+    /// By default, this deserializes arrays from a sequence.
+    #[inline]
+    fn deserialize_fixed_size_array<V>(&mut self,
+                                       _len: usize,
+                                       visitor: V) -> Result<V::Value, Self::Error>
+        where V: de::Visitor,
+    {   
+        self.deserialize_seq(visitor)
+    }
+
     /// This method hints that the `Deserialize` type is expecting a map of values. This allows
     /// deserializers to parse sequences that aren't tagged as maps.
     #[inline]
-    fn visit_map<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_map<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         let len = try!(self.uncompact_u32());
@@ -257,41 +270,41 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
     /// This method hints that the `Deserialize` type is expecting a unit struct. This allows
     /// deserializers to a unit struct that aren't tagged as a unit struct.
     #[inline]
-    fn visit_unit_struct<V>(&mut self,
+    fn deserialize_unit_struct<V>(&mut self,
                             _name: &'static str,
                             visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
-        self.visit_unit(visitor)
+        self.deserialize_unit(visitor)
     }
 
     /// This method hints that the `Deserialize` type is expecting a newtype struct. This allows
     /// deserializers to a newtype struct that aren't tagged as a newtype struct.
     #[inline]
-    fn visit_newtype_struct<V>(&mut self,
+    fn deserialize_newtype_struct<V>(&mut self,
                                name: &'static str,
                                visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
-        self.visit_tuple_struct(name, 1, visitor)
+        self.deserialize_tuple_struct(name, 1, visitor)
     }
 
     /// This method hints that the `Deserialize` type is expecting a tuple struct. This allows
     /// deserializers to parse sequences that aren't tagged as sequences.
     #[inline]
-    fn visit_tuple_struct<V>(&mut self,
+    fn deserialize_tuple_struct<V>(&mut self,
                              _name: &'static str,
                              len: usize,
                              visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
-        self.visit_tuple(len, visitor)
+        self.deserialize_tuple(len, visitor)
     }
 
     /// This method hints that the `Deserialize` type is expecting a struct. This allows
     /// deserializers to parse sequences that aren't tagged as maps.
     #[inline]
-    fn visit_struct<V>(&mut self,
+    fn deserialize_struct<V>(&mut self,
                        _name: &'static str,
                        fields: &'static [&'static str],
                        mut visitor: V) -> Result<V::Value, Self::Error>
@@ -303,7 +316,7 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
     /// This method hints that the `Deserialize` type is expecting a tuple value. This allows
     /// deserializers that provide a custom tuple serialization to properly deserialize the type.
     #[inline]
-    fn visit_tuple<V>(&mut self, len: usize, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_tuple<V>(&mut self, len: usize, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         visitor.visit_seq(SeqVisitor::with_len(self, len as usize))
@@ -313,7 +326,7 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
     /// deserializers that provide a custom enumeration serialization to properly deserialize the
     /// type.
     #[inline]
-    fn visit_enum<V>(&mut self,
+    fn deserialize_enum<V>(&mut self,
                      enum_name: &'static str,
                      _variants: &'static [&'static str],
                      mut visitor: V) -> Result<V::Value, Self::Error>
@@ -333,22 +346,13 @@ impl<R> de::Deserializer for Deserializer<R> where R : Read {
     /// deserializers that provide a custom byte vector serialization to properly deserialize the
     /// type.
     #[inline]
-    fn visit_bytes<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_bytes<V>(&mut self, mut visitor: V) -> Result<V::Value, Self::Error>
         where V: de::Visitor,
     {
         let len = try!(self.uncompact_u32()) as usize;
         let mut s = vec![0; len];
         try!(self.reader.read_exact(&mut s));
         visitor.visit_bytes(&s)
-    }
-
-    /// Specify a format string for the deserializer.
-    ///
-    /// The deserializer format is used to determine which format
-    /// specific field attributes should be used with the
-    /// deserializer.
-    fn format() -> &'static str {
-        "pwrd"
     }
 }
 
@@ -397,7 +401,7 @@ impl<'a, R> de::SeqVisitor for SeqVisitor<'a, R> where R : Read + 'a {
         if self.cur >= self.len {
             Ok(())
         } else {
-            Err(<Error as de::Error>::syntax("impossible"))
+            Err(<Error as de::Error>::custom("impossible"))
         }
     }
 
@@ -475,7 +479,7 @@ impl<'a, R> de::MapVisitor for MapVisitor<'a, R> where R : Read + 'a {
         if self.cur >= self.len {
             Ok(())
         } else {
-            Err(<Error as de::Error>::syntax("impossible"))
+            Err(<Error as de::Error>::custom("impossible"))
         }
     }
 
@@ -514,7 +518,7 @@ impl<R> de::VariantVisitor for Deserializer<R> where R : Read {
     /// The error type that can be returned if some error occurs during deserialization.
     type Error = Error;
 
-    /// `visit_variant` is called to identify which variant to deserialize.
+    /// `deserialize_variant` is called to identify which variant to deserialize.
     #[inline]
     fn visit_variant<V>(&mut self) -> Result<V, Self::Error>
         where V: Deserialize
@@ -526,19 +530,19 @@ impl<R> de::VariantVisitor for Deserializer<R> where R : Read {
         //TODO
     }
 
-    /// `visit_unit` is called when deserializing a variant with no values.
+    /// `deserialize_unit` is called when deserializing a variant with no values.
     #[inline]
     fn visit_unit(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
 
-    /// `visit_newtype` is called when deserializing a variant with a single value. By default this
-    /// uses the `visit_tuple` method to deserialize the value.
+    /// `deserialize_newtype` is called when deserializing a variant with a single value. By default this
+    /// uses the `deserialize_tuple` method to deserialize the value.
     #[inline]
-//    fn visit_newtype<T>(&mut self) -> Result<T, Self::Error>
+//    fn deserialize_newtype<T>(&mut self) -> Result<T, Self::Error>
 //        where T: Deserialize,
 
-    /// `visit_tuple` is called when deserializing a tuple-like variant.
+    /// `deserialize_tuple` is called when deserializing a tuple-like variant.
     fn visit_tuple<V>(&mut self,
                       len: usize,
                       mut visitor: V) -> Result<V::Value, Self::Error>
@@ -547,7 +551,7 @@ impl<R> de::VariantVisitor for Deserializer<R> where R : Read {
         visitor.visit_seq(SeqVisitor::with_len(self, len))
     }
 
-    /// `visit_struct` is called when deserializing a struct-like variant.
+    /// `deserialize_struct` is called when deserializing a struct-like variant.
     fn visit_struct<V>(&mut self,
                        fields: &'static [&'static str],
                        mut visitor: V) -> Result<V::Value, Self::Error>

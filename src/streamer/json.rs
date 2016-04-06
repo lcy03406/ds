@@ -63,7 +63,7 @@ impl ErrorMapper for JsonErrorMapper {
         e
     }
     fn error_from_io(e: io::Error) -> Self::Error {
-        Error::IoError(e)
+        Error::Io(e)
     }
 }
 

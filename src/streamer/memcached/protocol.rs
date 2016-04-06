@@ -34,7 +34,7 @@ pub const PROTOCOL_BINARY_RESPONSE_ETMPFAIL : ResponseStatus = ResponseStatus(0x
 * Defintion of the different command opcodes.
 * See section 3.3 Command Opcodes
 */
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Opcode(pub u8);
 pub const PROTOCOL_BINARY_CMD_GET : Opcode = Opcode(0x00);
 pub const PROTOCOL_BINARY_CMD_SET : Opcode = Opcode(0x01);
