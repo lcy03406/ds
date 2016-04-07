@@ -72,9 +72,11 @@ service_define!(DB_SERVICE : DbService);
 impl ServiceHandler for FrontService {
     type Packet = ProtocolFrom7001;
     type Streamer = PwStreamer<Self::Packet>;
-    fn connected(&self, _token : Token) {
+    fn connected(&self, token : Token) {
+        trace!("front_service {:?} connected", token);
     }
-    fn disconnected(&self, _token : Token) {
+    fn disconnected(&self, token : Token) {
+        trace!("front_service {:?} disconnected", token);
     }
     fn incoming(&self, token : Token, packet : Self::Packet) {
         match packet {
@@ -84,7 +86,7 @@ impl ServiceHandler for FrontService {
                     Some(n) => *n,
                 };
                 let keystr = key.to_string();
-            	trace!("receive request set {:?}", key);
+            	trace!("front_service {:?} receive request set {:?}", token, key);
                 self.ongoing.borrow_mut().insert(opaque, Ongoing { token : token, roleid : 0, key : key });
                 service_broadcast!(DB_SERVICE, &memcached::protocol::Packet::new_request_set(opaque, keystr, value));
             }
@@ -94,7 +96,7 @@ impl ServiceHandler for FrontService {
                     Some(n) => *n,
                 };
                 let keystr = key.to_string();
-            	trace!("receive request get {:?}", key);
+            	trace!("front_service {:?} receive request get {:?}", token, key);
                 self.ongoing.borrow_mut().insert(opaque, Ongoing { token : token, roleid : roleid, key : key });
                 service_broadcast!(DB_SERVICE, &memcached::protocol::Packet::new_request_get(opaque, keystr));
             }
@@ -110,12 +112,13 @@ impl ServiceHandler for FrontService {
 impl ServiceHandler for DbService {
     type Packet = memcached::protocol::Packet;
     type Streamer = MemcachedStreamer;
-    fn connected(&self, _token : Token) {
+    fn connected(&self, token : Token) {
+        trace!("db_service {:?} connected to db", token);
     }
-    fn disconnected(&self, _token : Token) {
-        self.ongoing.borrow_mut().clear();
+    fn disconnected(&self, token : Token) {
+        trace!("db_service {:?} dosconnected to db", token);
     }
-    fn incoming(&self, _token : Token, packet : Self::Packet) {
+    fn incoming(&self, intoken : Token, packet : Self::Packet) {
         match packet.header.opcode {
             memcached::protocol::PROTOCOL_BINARY_CMD_GET => {
                 let ongoing = match self.ongoing.borrow_mut().remove(&packet.header.opaque) {
@@ -125,7 +128,7 @@ impl ServiceHandler for DbService {
                 let token = ongoing.token;
                 let key = ongoing.key;
                 let result = packet.header.status.0 as i32;
-            	trace!("receive response get {:?} result {:?}", key, result);
+            	trace!("db_service {:?} receive response to {:?} get {:?} result {:?}", intoken, token, key, result);
                 let re = ProtocolFrom7001::GetRe(ongoing.roleid, key, result, packet.value);
                 service_write!(FRONT_SERVICE, token, &re);
             }
@@ -137,7 +140,7 @@ impl ServiceHandler for DbService {
                 let token = ongoing.token;
                 let key = ongoing.key;
                 let result = packet.header.status.0 as i32;
-            	trace!("receive response set {:?} result {:?}", key, result);
+            	trace!("db_service {:?} receive response to {:?} set {:?} result {:?}", intoken, token, key, result);
                 let re = ProtocolFrom7001::SetRe(key, result);
                 service_write!(FRONT_SERVICE, token, &re);
             }
