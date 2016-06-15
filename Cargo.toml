@@ -14,5 +14,6 @@ serde_json = "*"
 protobuf = "*"
 rustc-serialize = "*"
 toml = "*"
+time = "*"
 
 [dev-dependencies]
