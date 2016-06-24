@@ -179,5 +179,13 @@ impl Packet {
             value : value,
         }
     }
+    pub fn new_request_noop(opaque : u32) -> Self {
+        Packet {
+            header : Header::new_request(PROTOCOL_BINARY_CMD_NOOP, opaque, 0, 0, 0),
+            extras : Vec::new(),
+            key : String::new(),
+            value : Vec::new(),
+        }
+    }
 }
 

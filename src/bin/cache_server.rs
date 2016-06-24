@@ -6,6 +6,7 @@ extern crate ds;
 #[macro_use]
 extern crate log;
 extern crate serde;
+extern crate time;
 
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -21,6 +22,8 @@ use ds::streamer::pw::PwStreamer;
 use ds::streamer::memcached::MemcachedStreamer;
 use ds::streamer::memcached;
 
+use time::{Duration, PreciseTime};
+
 #[derive(Serialize, Deserialize, Debug)]
 struct Key {
     roleid : u64,
@@ -30,7 +33,8 @@ struct Key {
 
 impl Key {
     fn to_string(&self) -> String {
-        format!("@@cache.{:016X}|{:08X}|{:08X}", self.roleid, self.timestamp, self.passcode)
+        let part = self.timestamp/86400%10;
+        format!("@@cache{}.{:016X}|{:08X}|{:08X}", part, self.roleid, self.timestamp, self.passcode)
     }
 }
 
@@ -57,6 +61,7 @@ struct Ongoing {
     token : Token,
     roleid : u64,
     key : Key,
+    time : PreciseTime,
 }
 
 struct FrontService {
@@ -81,23 +86,25 @@ impl ServiceHandler for FrontService {
     fn incoming(&self, token : Token, packet : Self::Packet) {
         match packet {
             ProtocolFrom7001::Set(key, value) => {
-                let opaque = match self.ongoing.borrow().keys().next_back() {
+                let mut ongoing = self.ongoing.borrow_mut();
+                let opaque = match ongoing.keys().next_back() {
                     None => 0,
-                    Some(n) => *n,
+                    Some(n) => *n + 1,
                 };
                 let keystr = key.to_string();
-            	trace!("front_service {:?} receive request set {:?}", token, key);
-                self.ongoing.borrow_mut().insert(opaque, Ongoing { token : token, roleid : 0, key : key });
+            	trace!("front_service {:?} {:?} receive request set {:?}", token, opaque, key);
+                ongoing.insert(opaque, Ongoing { token : token, roleid : 0, key : key, time : PreciseTime::now() });
                 service_broadcast!(DB_SERVICE, &memcached::protocol::Packet::new_request_set(opaque, keystr, value));
             }
             ProtocolFrom7001::Get(roleid, key) => {
-                let opaque = match self.ongoing.borrow().keys().next_back() {
+                let mut ongoing = self.ongoing.borrow_mut();
+                let opaque = match ongoing.keys().next_back() {
                     None => 0,
-                    Some(n) => *n,
+                    Some(n) => *n + 1,
                 };
                 let keystr = key.to_string();
-            	trace!("front_service {:?} receive request get {:?}", token, key);
-                self.ongoing.borrow_mut().insert(opaque, Ongoing { token : token, roleid : roleid, key : key });
+            	trace!("front_service {:?} {:?} receive request get {:?}", token, opaque, key);
+                ongoing.insert(opaque, Ongoing { token : token, roleid : roleid, key : key, time : PreciseTime::now()});
                 service_broadcast!(DB_SERVICE, &memcached::protocol::Packet::new_request_get(opaque, keystr));
             }
             _ => {
@@ -119,32 +126,42 @@ impl ServiceHandler for DbService {
         trace!("db_service {:?} dosconnected to db", token);
     }
     fn incoming(&self, intoken : Token, packet : Self::Packet) {
+        let now = PreciseTime::now();
         match packet.header.opcode {
             memcached::protocol::PROTOCOL_BINARY_CMD_GET => {
+                let opaque = packet.header.opaque;
+                let result = packet.header.status.0 as i32;
                 let ongoing = match self.ongoing.borrow_mut().remove(&packet.header.opaque) {
-                    None => return,
+                    None => {
+            	        trace!("db_service {:?} {:?} receive response to unknown get unknown result {:?}", intoken, opaque, result);
+                        return
+                    }
                     Some(g) => g
                 };
                 let token = ongoing.token;
                 let key = ongoing.key;
-                let result = packet.header.status.0 as i32;
-            	trace!("db_service {:?} receive response to {:?} get {:?} result {:?}", intoken, token, key, result);
+            	trace!("db_service {:?} {:?} receive response to {:?} get {:?} {} result {:?} time {:?}", intoken, opaque, token, key, key.to_string(), result, ongoing.time.to(now).num_milliseconds());
                 let re = ProtocolFrom7001::GetRe(ongoing.roleid, key, result, packet.value);
                 service_write!(FRONT_SERVICE, token, &re);
             }
             memcached::protocol::PROTOCOL_BINARY_CMD_SET => {
+                let opaque = packet.header.opaque;
+                let result = packet.header.status.0 as i32;
                 let ongoing = match self.ongoing.borrow_mut().remove(&packet.header.opaque) {
-                    None => return,
+                    None => {
+            	        trace!("db_service {:?} {:?} receive response to unknown set unknown result {:?}", intoken, opaque, result);
+                        return
+                    },
                     Some(g) => g
                 };
                 let token = ongoing.token;
                 let key = ongoing.key;
-                let result = packet.header.status.0 as i32;
-            	trace!("db_service {:?} receive response to {:?} set {:?} result {:?}", intoken, token, key, result);
+            	trace!("db_service {:?} {:?} receive response to {:?} set {:?} {} result {:?} time {:?}", intoken, opaque, token, key, key.to_string(), result, ongoing.time.to(now).num_milliseconds());
                 let re = ProtocolFrom7001::SetRe(key, result);
                 service_write!(FRONT_SERVICE, token, &re);
             }
             _ => {
+            	trace!("db_service {:?} receive unknown response", intoken);
             }
         }
     }

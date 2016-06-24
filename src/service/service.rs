@@ -196,10 +196,10 @@ impl<H: ServiceHandler + 'static > ServiceRef<H> {
                         stream.shutdown();
                     } else {
                         if es.is_writable() {
-                            if got == EventSet::none() {
-                                trace!("stream connect");
+                            if stream.connecting {
                                 info!("Service {} connected to {:?} {}", service.name, token, stream.peer_addr);
                                 new_connected = true;
+                                stream.connecting = false;
                             }
                             stream.flush().ok();
                         }
@@ -256,19 +256,22 @@ impl<H: ServiceHandler + 'static > ServiceRef<H> {
                     }
                     if es.is_readable() {
                         trace!("listen read");
-                        match listen.listener.accept() {
-                            Ok(Some((stream, peer))) => {
-                                let token = LOOPER.with(|looper| {
-                                    looper.borrow_mut().as_mut().unwrap().register(Rc::new(RefCell::new(self.clone())))
-                                });
-                                streams.insert(token,
-                                    Rc::new(RefCell::new(Stream::new(token, stream, false, false, peer))));
-                            }
-                            Ok(None) => {
-                                trace!("listen accept none");
-                            }
-                            Err(e) => {
-                                trace!("listen accept err {:?}", e);
+                        loop {
+                            match listen.listener.accept() {
+                                Ok(Some((stream, peer))) => {
+                                    let token = LOOPER.with(|looper| {
+                                        looper.borrow_mut().as_mut().unwrap().register(Rc::new(RefCell::new(self.clone())))
+                                    });
+                                    streams.insert(token,
+                                        Rc::new(RefCell::new(Stream::new(token, stream, false, false, peer))));
+                                }
+                                Ok(None) => {
+                                    trace!("listen accept none");
+                                    break;
+                                }
+                                Err(e) => {
+                                    trace!("listen accept err {:?}", e);
+                                }
                             }
                         }
                     }
