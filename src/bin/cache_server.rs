@@ -7,14 +7,16 @@ extern crate ds;
 extern crate log;
 extern crate serde;
 extern crate time;
+extern crate toml;
+extern crate rustc_serialize;
 
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::str::FromStr;
 use std::num::ParseIntError;
-
+use std::fs::File;
 use serde::{Serializer, Deserializer};
 
 use ds::service::{Token, ServiceHandler, ServiceRef, ServiceConfig, init, run_loop};
@@ -22,7 +24,13 @@ use ds::streamer::pw::PwStreamer;
 use ds::streamer::memcached::MemcachedStreamer;
 use ds::streamer::memcached;
 
-use time::{Duration, PreciseTime};
+use time::PreciseTime;
+
+#[derive(RustcEncodable, RustcDecodable, Debug)]
+struct TableConfig {
+    prefix : String,
+    count : u32,
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Key {
@@ -32,9 +40,9 @@ struct Key {
 }
 
 impl Key {
-    fn to_string(&self) -> String {
-        let part = self.timestamp/86400%10;
-        format!("@@cache{}.{:016X}|{:08X}|{:08X}", part, self.roleid, self.timestamp, self.passcode)
+    fn to_string(&self, table: &TableConfig) -> String {
+        let part = self.timestamp/86400%table.count;
+        format!("@@{}{}.{:016X}|{:08X}|{:08X}", table.prefix, part, self.roleid, self.timestamp, self.passcode)
     }
 }
 
@@ -66,6 +74,7 @@ struct Ongoing {
 
 struct FrontService {
     ongoing : Rc<RefCell<BTreeMap<u32, Ongoing>>>,
+    table : TableConfig,
 }
 struct DbService {
     ongoing : Rc<RefCell<BTreeMap<u32, Ongoing>>>,
@@ -91,8 +100,8 @@ impl ServiceHandler for FrontService {
                     None => 0,
                     Some(n) => *n + 1,
                 };
-                let keystr = key.to_string();
-            	trace!("front_service {:?} {:?} receive request set {:?}", token, opaque, key);
+                let keystr = key.to_string(&self.table);
+            	trace!("front_service {:?} {:?} receive request set {:?} {}", token, opaque, key, keystr);
                 ongoing.insert(opaque, Ongoing { token : token, roleid : 0, key : key, time : PreciseTime::now() });
                 service_broadcast!(DB_SERVICE, &memcached::protocol::Packet::new_request_set(opaque, keystr, value));
             }
@@ -102,8 +111,8 @@ impl ServiceHandler for FrontService {
                     None => 0,
                     Some(n) => *n + 1,
                 };
-                let keystr = key.to_string();
-            	trace!("front_service {:?} {:?} receive request get {:?}", token, opaque, key);
+                let keystr = key.to_string(&self.table);
+            	trace!("front_service {:?} {:?} receive request get {:?} {}", token, opaque, key, keystr);
                 ongoing.insert(opaque, Ongoing { token : token, roleid : roleid, key : key, time : PreciseTime::now()});
                 service_broadcast!(DB_SERVICE, &memcached::protocol::Packet::new_request_get(opaque, keystr));
             }
@@ -140,7 +149,7 @@ impl ServiceHandler for DbService {
                 };
                 let token = ongoing.token;
                 let key = ongoing.key;
-            	trace!("db_service {:?} {:?} receive response to {:?} get {:?} {} result {:?} time {:?}", intoken, opaque, token, key, key.to_string(), result, ongoing.time.to(now).num_milliseconds());
+            	trace!("db_service {:?} {:?} receive response to {:?} get {:?} result {:?} time {:?}", intoken, opaque, token, key, result, ongoing.time.to(now).num_milliseconds());
                 let re = ProtocolFrom7001::GetRe(ongoing.roleid, key, result, packet.value);
                 service_write!(FRONT_SERVICE, token, &re);
             }
@@ -156,7 +165,7 @@ impl ServiceHandler for DbService {
                 };
                 let token = ongoing.token;
                 let key = ongoing.key;
-            	trace!("db_service {:?} {:?} receive response to {:?} set {:?} {} result {:?} time {:?}", intoken, opaque, token, key, key.to_string(), result, ongoing.time.to(now).num_milliseconds());
+            	trace!("db_service {:?} {:?} receive response to {:?} set {:?} result {:?} time {:?}", intoken, opaque, token, key, result, ongoing.time.to(now).num_milliseconds());
                 let re = ProtocolFrom7001::SetRe(key, result);
                 service_write!(FRONT_SERVICE, token, &re);
             }
@@ -170,12 +179,20 @@ impl ServiceHandler for DbService {
 }
 
 fn main() {
+    let mut file = File::open("config.toml").unwrap();
+    let mut st = String::new();
+    file.read_to_string(&mut st).unwrap();
+    let mut map = toml::Parser::new(&st).parse().unwrap();
+    let value = map.remove("table").unwrap();
+    let table = toml::decode(value).unwrap();
     init();
     let ongoing = Rc::new(RefCell::new(BTreeMap::new()));
-    let front_service = FrontService { ongoing : ongoing.clone() };
+    let front_service = FrontService { ongoing : ongoing.clone(), table : table };
     let db_service = DbService { ongoing : ongoing.clone() };
-    service_start!(FRONT_SERVICE, front_service, ServiceConfig::from_file("config.toml", "front_service"));
-    service_start!(DB_SERVICE, db_service, ServiceConfig::from_file("config.toml", "db_service"));
+    let front_config = map.remove("front_service").unwrap();
+    let db_config = map.remove("db_service").unwrap();
+    service_start!(FRONT_SERVICE, front_service, ServiceConfig::from_toml(front_config));
+    service_start!(DB_SERVICE, db_service, ServiceConfig::from_toml(db_config));
     run_loop();
 }
 
